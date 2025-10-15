@@ -18,7 +18,6 @@ from src.model import *
 # ----------------------------------------------------
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
 DATA_PATH = "data/motor_temp.csv"
 
 
@@ -31,13 +30,13 @@ def objective(trial):
     # -------------------------------
     hidden_dim = trial.suggest_categorical("hidden_dim", [8, 16, 32, 64, 128])
     num_layers = trial.suggest_int("num_layers", 1, 3)
-    lr = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
+    lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
     seq_len = trial.suggest_int("seq_len", 200, 800, step=100)
-    stride = trial.suggest_int("stride", 25, 100, step=25)
     lambda_phys = trial.suggest_float("lambda_phys", 0.01, 1.0, log=True)
     lambda_init = trial.suggest_float("lambda_init", 0.0, 0.5)
-    epochs = trial.suggest_int("epochs", 10, 30)
+    epochs = 10
+    stride = 10
 
     # -------------------------------
     # Fixed motor/thermal parameters
@@ -69,7 +68,7 @@ def objective(trial):
         time_step = df_step["time"].values - df_step["time"].values[0]
         T_amb = df_step["Tc"].values
         T_step = df_step["Tsw"].values
-        Is = df_step["Is"].values
+        Is = df_step["Is"].values / np.sqrt(2)
         Wm = df_step["Wm"].values
 
         f1 = (1 + alpha * (T_step - Tref))
@@ -78,7 +77,8 @@ def objective(trial):
         dt_s = np.mean(np.diff(time_step))
 
         R_fit, C_fit = identify_rc(P_step.flatten(), T_step, T_amb, dt_s)
-        id_data.append({"id": id_sel, "R": R_fit, "C": C_fit})
+        id_data.append({"id": id_sel, "Is": np.mean(Is), "Wm": np.mean(Wm),
+                        "Pv": np.max(P_step), "R": R_fit, "C": C_fit})
 
     df_ident = pd.DataFrame(id_data)
     R_hat, C_hat = df_ident["R"].mean(), df_ident["C"].mean()
@@ -86,15 +86,15 @@ def objective(trial):
     # -------------------------------
     # Feature computation
     # -------------------------------
-    Pv1 = 3 * Rs * df["Is"] ** 2
-    T_rc = foster_rc(df["Tc"], Pv1, dt_s, R_hat, C_hat)
-    f1 = (1 + alpha * (T_rc - Tref))
+    # Calc features
+    f1 = (1 + alpha * (df["Tc"] - Tref))
     f2 = 1 + beta_1 * (df["Wm"] / n_max) + beta_2 * (df["Wm"] / n_max) ** 2
-    df["Pv_s"] = 3 * Rs * df["Is"] ** 2 * f1 * f2
-    df["Sel"] = 3 * df["Is"] * df["Us"]
+    df["Pv_s"] = 3 * Rs * (df["Is"] / np.sqrt(2)) ** 2 * f1 * f2
+    df["Sel"] = 3 / 2 * df["Is"] * df["Us"]
     df["SelI"] = df["Sel"] * df["Is"]
     df["SelW"] = df["Sel"] * df["Wm"]
 
+    # Remove features
     feature_cols = [c for c in df.columns if c not in ["id", "time", "time_id", "T0", "Tsw", "Tst", "Tso", "Trm"]]
 
     # -------------------------------
@@ -109,11 +109,23 @@ def objective(trial):
     # -------------------------------
     # Normalization
     # -------------------------------
+    # Norm values
     X_mean, X_std = df_train[feature_cols].mean(), df_train[feature_cols].std() + 1e-8
     T_min, T_max = df_train["Tsw"].min(), df_train["Tsw"].max()
 
-    X_train, T_train, P_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min, Rs)
-    X_val, T_val, P_val, Tamb_val = normalize(df_val, feature_cols, X_mean, X_std, T_max, T_min, Rs)
+    # Normalize
+    X_train, T_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min)
+    X_val, T_val, Tamb_val = normalize(df_val, feature_cols, X_mean, X_std, T_max, T_min)
+
+    # Calc Power
+    P_train = 3 * Rs * (df_train["Is"] / np.sqrt(2)) ** 2
+    P_val = 3 * Rs * (df_val["Is"] / np.sqrt(2)) ** 2
+
+    # Scale Temperature-dependent Power
+    P_train *= (1 + alpha * (df_train["Tsw"] - Tref)) * (
+                1 + beta_1 * (df_train["Wm"] / n_max) + beta_2 * (df_train["Wm"] / n_max) ** 2)
+    P_val *= (1 + alpha * (df_val["Tsw"] - Tref)) * (
+                1 + beta_1 * (df_val["Wm"] / n_max) + beta_2 * (df_val["Wm"] / n_max) ** 2)
 
     # -------------------------------
     # DataLoaders
