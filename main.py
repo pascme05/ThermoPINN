@@ -32,7 +32,11 @@ def main():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
 
-    # Thermal / motor parameters
+    # Fixed Thermal parameters
+    Rth = []                                                                                                             # Thermal resistance foster network [K/W]
+    Cth = []                                                                                                             # Thermal capacitance foster network [Ws/K]
+
+    # Motor parameters
     Rs = 14.1e-3                                                                                                         # Stator resistance [Ohm]
     alpha = 0.00393                                                                                                      # Temperature coefficient of resistance [1/°C]
     Tref = 20                                                                                                            # Reference temperature for Rs [°C]
@@ -41,13 +45,13 @@ def main():
     beta_2 = 0.616                                                                                                       # Parameter for frequency losses (quadratic)
 
     # Training hyperparameters
-    seq_len = 600                                                                                                        # Sequence length (timesteps per training sample)
-    stride = 50                                                                                                           # Step size between training sequences
+    seq_len = 300                                                                                                        # Sequence length (timesteps per training sample)
+    stride = 10                                                                                                          # Step size between training sequences
     batch_size = 32                                                                                                      # Batch size for training
-    hidden_dim = 8                                                                                                      # Hidden units in LSTM layers
+    hidden_dim = 32                                                                                                       # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
     lr = 1e-3                                                                                                            # Learning rate for optimizer
-    epochs = 20                                                                                                         # Maximum number of training epochs
+    epochs = 100                                                                                                          # Maximum number of training epochs
     lambda_phys = 0.1                                                                                                    # Weight for physics-informed loss term
     lambda_init = 0.0                                                                                                    # Weight for initial condition loss (currently unused)
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
@@ -73,7 +77,7 @@ def main():
         time_step = df_step["time"].values - df_step["time"].values[0]
         T_amb = df_step["Tc"].values
         T_step = df_step["Tsw"].values
-        Is = df_step["Is"].values
+        Is = df_step["Is"].values / np.sqrt(2)
         Wm = df_step["Wm"].values
 
         f1 = (1 + alpha * (T_step - Tref))
@@ -93,20 +97,23 @@ def main():
     poly_C = make_pipeline(PolynomialFeatures(2), LinearRegression())
     poly_C.fit(df_ident[["Is", "Wm"]], df_ident["C"])
 
-    R_hat = df_ident["R"].mean()
-    C_hat = df_ident["C"].mean()
-    print(f"Identified Average: R = {R_hat:.4f} K/W, C = {C_hat:.2f} J/K")
+    if not Rth:
+        R_hat = df_ident["R"].mean()
+        C_hat = df_ident["C"].mean()
+        print(f"Identified Average: R_th = {R_hat:.4f} K/W, C_th = {C_hat:.2f} J/K")
+    else:
+        R_hat = Rth[0]
+        C_hat = Cth[0]
+        print(f"Defined Average: R_th = {R_hat:.4f} K/W, C_th = {C_hat:.2f} J/K")
 
     # -------------------------------
     # Feature preparation
     # -------------------------------
     # Calc features
-    Pv1 = 3 * Rs * df["Is"] ** 2
-    T_rc = foster_rc(df["Tc"], Pv1, dt_s, R_hat, C_hat)
-    f1 = (1 + alpha * (T_rc - Tref))
+    f1 = (1 + alpha * (df["Tc"] - Tref))
     f2 = 1 + beta_1 * (df["Wm"] / n_max) + beta_2 * (df["Wm"] / n_max) ** 2
-    df["Pv_s"] = 3 * Rs * df["Is"] ** 2 * f1 * f2
-    df["Sel"] = 3 * df["Is"] * df["Us"]
+    df["Pv_s"] = 3 * Rs * (df["Is"] / np.sqrt(2)) ** 2 * f1 * f2
+    df["Sel"] = 3/2 * df["Is"] * df["Us"]
     df["SelI"] = df["Sel"] * df["Is"]
     df["SelW"] = df["Sel"] * df["Wm"]
 
@@ -129,12 +136,19 @@ def main():
     T_min, T_max = df_train["Tsw"].min(), df_train["Tsw"].max()
 
     # Normalize
-    X_train, T_train, P_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min, Rs)
-    X_val, T_val, P_val, Tamb_val = normalize(df_val, feature_cols, X_mean, X_std, T_max, T_min, Rs)
+    X_train, T_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min)
+    X_val, T_val, Tamb_val = normalize(df_val, feature_cols, X_mean, X_std, T_max, T_min)
+
+    # Calc Power
+    P_train = 3 * Rs * (df_train["Is"] / np.sqrt(2)) ** 2
+    P_val = 3 * Rs * (df_val["Is"] / np.sqrt(2)) ** 2
 
     # Scale Temperature-dependent Power
     P_train *= (1 + alpha * (df_train["Tsw"] - Tref)) * (1 + beta_1 * (df_train["Wm"] / n_max) + beta_2 * (df_train["Wm"] / n_max) ** 2)
     P_val *= (1 + alpha * (df_val["Tsw"] - Tref)) * (1 + beta_1 * (df_val["Wm"] / n_max) + beta_2 * (df_val["Wm"] / n_max) ** 2)
+
+    #P_train = df_train["Pv_s"]
+    #P_val = df_train["Pv_s"]
 
     # -------------------------------
     # DataLoaders
@@ -233,7 +247,7 @@ def main():
         T_pred_rc = foster_rc(df_session["Tc"].values, P_test, dt_s, R_hat, C_hat)
 
         # Prepare neural network input
-        X_test, T_test, _, _ = normalize(df_session, feature_cols, X_mean, X_std, T_max, T_min, Rs)
+        X_test, T_test, _ = normalize(df_session, feature_cols, X_mean, X_std, T_max, T_min)
 
         with torch.no_grad():
             X_tensor = torch.tensor(X_test, dtype=torch.float32, device=DEVICE).unsqueeze(0)

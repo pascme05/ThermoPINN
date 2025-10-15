@@ -98,15 +98,14 @@ def make_sequences(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray
 
 
 def normalize(df_part: pd.DataFrame, feature_cols: list[str], X_mean: pd.Series, X_std: pd.Series,
-              T_max: float, T_min: float, Rs: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+              T_max: float, T_min: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Normalize features and target temperature for neural network input.
     """
     X = (df_part[feature_cols] - X_mean) / X_std
     T = (df_part["Tsw"].values - T_min) / (T_max - T_min)
-    P = 3 * Rs * df_part["Is"].values ** 2
     Tamb = (df_part["Tc"].values - T_min) / (T_max - T_min)
-    return X.values, T, P, Tamb
+    return X.values, T, Tamb
 
 
 def prepare_loader(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,
