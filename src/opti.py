@@ -131,9 +131,11 @@ def objective(trial):
     # DataLoaders
     # -------------------------------
     train_loader = prepare_loader(X_train, T_train, P_train, Tamb_train, df_train["time_id"].values,
-                                  df_train["T0"].values, seq_len, stride, batch_size, DEVICE, shuffle=False)
+                                  df_train["T0"].values, seq_len, stride, batch_size, DEVICE,
+                                  df[df["id"].isin(train_ids)]["id"].to_numpy(), shuffle=False)
     val_loader = prepare_loader(X_val, T_val, P_val, Tamb_val, df_val["time_id"].values,
-                                df_val["T0"].values, seq_len, stride, batch_size, DEVICE, shuffle=False)
+                                df_val["T0"].values, seq_len, stride, batch_size, DEVICE,
+                                df[df["id"].isin(test_ids)]["id"].to_numpy(), shuffle=False)
 
     # -------------------------------
     # Model setup

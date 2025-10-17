@@ -76,7 +76,7 @@ def foster_rc(T_amb: np.ndarray, P: np.ndarray, dt: float, Rth: float, Cth: floa
     return T_est + T_amb
 
 
-def make_sequences(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,
+def make_sequences2(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,
                    t: np.ndarray, T0: np.ndarray, seq_len: int, stride: int = 1) -> tuple[np.ndarray, ...]:
     """
     Convert time-series data into overlapping sequences.
@@ -97,6 +97,49 @@ def make_sequences(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray
             np.array(Tamb_seq), np.array(t_seq), np.array(T0_seq))
 
 
+def make_sequences(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,
+                   t: np.ndarray, T0: np.ndarray, seq_len: int, stride: int = 1,
+                   ids: np.ndarray | None = None) -> tuple[np.ndarray, ...]:
+    """
+    Convert time-series data into overlapping sequences without crossing different IDs.
+
+    Parameters
+    ----------
+    X, T, P, Tamb, t, T0 : np.ndarray
+        Input features, temperature, power, ambient temperature, time, and initial temp arrays.
+    seq_len : int
+        Sequence length.
+    stride : int, optional
+        Step size between sequences.
+    ids : np.ndarray, optional
+        Array of same length as X indicating segment/session IDs.
+
+    Returns
+    -------
+    Tuple of np.ndarray: (X_seq, T_seq, P_seq, Tamb_seq, t_seq, T0_seq)
+    """
+    X_seq, T_seq, P_seq, Tamb_seq, t_seq, T0_seq = [], [], [], [], [], []
+
+    if ids is None:
+        ids = np.zeros(len(X))  # fallback: treat as single continuous ID
+
+    for start in range(0, len(X) - seq_len + 1, stride):
+        end = start + seq_len
+        # Skip if sequence crosses two different IDs
+        if ids[start] != ids[end - 1]:
+            continue
+
+        X_seq.append(X[start:end])
+        T_seq.append(T[start:end])
+        P_seq.append(P[start:end])
+        Tamb_seq.append(Tamb[start:end])
+        t_seq.append(t[start:end])
+        T0_seq.append(T0[start:end])
+
+    return (np.array(X_seq), np.array(T_seq), np.array(P_seq),
+            np.array(Tamb_seq), np.array(t_seq), np.array(T0_seq))
+
+
 def normalize(df_part: pd.DataFrame, feature_cols: list[str], X_mean: pd.Series, X_std: pd.Series,
               T_max: float, T_min: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -110,11 +153,11 @@ def normalize(df_part: pd.DataFrame, feature_cols: list[str], X_mean: pd.Series,
 
 def prepare_loader(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,
                    t: np.ndarray, T0: np.ndarray, seq_len: int, stride: int,
-                   batch_size: int, device: str, shuffle: bool) -> DataLoader:
+                   batch_size: int, device: str, ids, shuffle: bool) -> DataLoader:
     """
     Convert sequences to PyTorch DataLoader.
     """
-    X_seq, T_seq, P_seq, Tamb_seq, t_seq, T0_seq = make_sequences(X, T, P, Tamb, t, T0, seq_len, stride)
+    X_seq, T_seq, P_seq, Tamb_seq, t_seq, T0_seq = make_sequences(X, T, P, Tamb, t, T0, seq_len, stride, ids)
     X_seq = torch.tensor(X_seq, dtype=torch.float32, device=device)
     T_seq = torch.tensor(T_seq, dtype=torch.float32, device=device)
     P_seq = torch.tensor(P_seq, dtype=torch.float32, device=device)

@@ -45,15 +45,15 @@ def main():
     beta_2 = 0.616                                                                                                       # Parameter for frequency losses (quadratic)
 
     # Training hyperparameters
-    seq_len = 300                                                                                                        # Sequence length (timesteps per training sample)
-    stride = 10                                                                                                          # Step size between training sequences
+    seq_len = 1300                                                                                                        # Sequence length (timesteps per training sample)
+    stride = 50                                                                                                          # Step size between training sequences
     batch_size = 32                                                                                                      # Batch size for training
-    hidden_dim = 32                                                                                                       # Hidden units in LSTM layers
+    hidden_dim = 256                                                                                                       # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
-    lr = 1e-3                                                                                                            # Learning rate for optimizer
+    lr = 1.67e-3                                                                                                            # Learning rate for optimizer
     epochs = 100                                                                                                          # Maximum number of training epochs
-    lambda_phys = 0.1                                                                                                    # Weight for physics-informed loss term
-    lambda_init = 0.0                                                                                                    # Weight for initial condition loss (currently unused)
+    lambda_phys = 0.02                                                                                                    # Weight for physics-informed loss term
+    lambda_init = 0.000                                                                                                    # Weight for initial condition loss (currently unused)
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
 
     # Dataset split IDs
@@ -154,9 +154,11 @@ def main():
     # DataLoaders
     # -------------------------------
     train_loader = prepare_loader(X_train, T_train, P_train, Tamb_train, df_train["time_id"].values,
-                                  df_train["T0"].values, seq_len, stride, batch_size, DEVICE, shuffle=False)
+                                  df_train["T0"].values, seq_len, stride, batch_size, DEVICE,
+                                  df[df["id"].isin(train_ids)]["id"].to_numpy(), shuffle=False)
     val_loader = prepare_loader(X_val, T_val, P_val, Tamb_val, df_val["time_id"].values,
-                                df_val["T0"].values, seq_len, stride, batch_size, DEVICE, shuffle=False)
+                                df_val["T0"].values, seq_len, stride, batch_size, DEVICE,
+                                df[df["id"].isin(test_ids)]["id"].to_numpy(), shuffle=False)
 
     # -------------------------------
     # Model setup
@@ -261,11 +263,20 @@ def main():
             err_rc = T_pred_rc - T_true_nn
             err_nn = T_pred_nn_phys - T_true_nn
 
+            # Error Metrics
             mse_test_rc = np.mean(err_rc ** 2)
             mse_test_nn = np.mean(err_nn ** 2)
+            mae_test_rc = np.mean(np.abs(err_rc))
+            mae_test_nn = np.mean(np.abs(err_nn))
+            max_test_rc = np.max(np.abs(err_rc))
+            max_test_nn = np.max(np.abs(err_nn))
 
-            print(f"RC MSE (°C): {mse_test_rc:.4f}")
-            print(f"NN MSE (°C): {mse_test_nn:.4f}")
+            print(f"RC MSE (°C): {mse_test_rc:.2f}")
+            print(f"RC MAE (°C): {mae_test_rc:.2f}")
+            print(f"RC MAX (°C): {max_test_rc:.2f}")
+            print(f"NN MSE (°C): {mse_test_nn:.2f}")
+            print(f"NN MAE (°C): {mae_test_nn:.2f}")
+            print(f"NN MAX (°C): {max_test_nn:.2f}")
 
             # -------------------------------
             # Plotting per session
