@@ -67,7 +67,7 @@ def main():
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
     lr = 1.67e-3                                                                                                            # Learning rate for optimizer
     epochs = 100                                                                                                          # Maximum number of training epochs
-    lambda_phys = 0.02                                                                                                    # Weight for physics-informed loss term
+    lambda_phys = 0.05                                                                                                    # Weight for physics-informed loss term
     lambda_init = 0.50                                                                                                   # Weight for initial condition loss (currently unused)
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
 

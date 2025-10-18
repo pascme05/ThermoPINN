@@ -34,8 +34,8 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
     rhs = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
     res = dTdt_pred - rhs
 
-    weights = torch.exp(-t / np.sqrt(R * C)).unsqueeze(0)
-    ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
+    weights = torch.exp(-t / R * C).unsqueeze(0)
+    ic_mse = torch.mean(weights * ((T_t - Tamb_phys) / (Tmax - Tmin)) ** 2)
 
     data_mse = torch.mean((T_pred - T) ** 2)
     phys_mse = torch.mean(res ** 2)
