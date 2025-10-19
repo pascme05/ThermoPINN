@@ -66,8 +66,8 @@ def main():
     hidden_dim = 256                                                                                                       # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
     lr = 1.67e-3                                                                                                            # Learning rate for optimizer
-    epochs = 100                                                                                                          # Maximum number of training epochs
-    lambda_phys = 0.05                                                                                                    # Weight for physics-informed loss term
+    epochs = 10                                                                                                          # Maximum number of training epochs
+    lambda_phys = 0.06                                                                                                    # Weight for physics-informed loss term
     lambda_init = 0.50                                                                                                   # Weight for initial condition loss (currently unused)
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
 
@@ -173,6 +173,14 @@ def main():
     P_val *= (1 + alpha * (df_val["Tsw"] - Tref)) * (1 + beta_1 * (df_val["Wm"] / n_max) + beta_2 * (df_val["Wm"] / n_max) ** 2)
 
     # -------------------------------
+    # Add Time as feature
+    # -------------------------------
+    t_norm = df_train["time_id"].values / df_train["time_id"].values.max()
+    X_train = np.concatenate([X_train, t_norm[:, np.newaxis]], axis=-1)
+    t_norm = df_val["time_id"].values / df_val["time_id"].values.max()
+    X_val = np.concatenate([X_val, t_norm[:, np.newaxis]], axis=-1)
+
+    # -------------------------------
     # DataLoaders
     # -------------------------------
     train_loader = prepare_loader(X_train, T_train, P_train, Tamb_train, df_train["time_id"].values,
@@ -188,8 +196,9 @@ def main():
     # -------------------------------
     # Model setup
     # -------------------------------
-    n_features = len(feature_cols)
+    n_features = X_train.shape[1]
     model = LSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
+    # model = MultiPathLSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)
     dt_torch = torch.tensor(dt_s, dtype=torch.float32, device=DEVICE)
@@ -283,6 +292,10 @@ def main():
 
         # Prepare neural network input
         X_test, T_test, _ = normalize(df_session, feature_cols, X_mean, X_std, T_max, T_min)
+
+        # Add time
+        t_norm = df_session["time_id"].values / df_session["time_id"].values.max()
+        X_test = np.concatenate([X_test, t_norm[:, np.newaxis]], axis=-1)
 
         with torch.no_grad():
             X_tensor = torch.tensor(X_test, dtype=torch.float32, device=DEVICE).unsqueeze(0)
