@@ -112,6 +112,7 @@ def objective(trial):
     # Norm values
     X_mean, X_std = df_train[feature_cols].mean(), df_train[feature_cols].std() + 1e-8
     T_min, T_max = df_train["Tsw"].min(), df_train["Tsw"].max()
+    t_max = df_train["time_id"].values.max()
 
     # Normalize
     X_train, T_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min)
@@ -128,6 +129,14 @@ def objective(trial):
                 1 + beta_1 * (df_val["Wm"] / n_max) + beta_2 * (df_val["Wm"] / n_max) ** 2)
 
     # -------------------------------
+    # Add Time as feature
+    # -------------------------------
+    t_norm = df_train["time_id"].values / t_max
+    X_train = np.concatenate([X_train, t_norm[:, np.newaxis]], axis=-1)
+    t_norm = df_val["time_id"].values / t_max
+    X_val = np.concatenate([X_val, t_norm[:, np.newaxis]], axis=-1)
+
+    # -------------------------------
     # DataLoaders
     # -------------------------------
     train_loader = prepare_loader(X_train, T_train, P_train, Tamb_train, df_train["time_id"].values,
@@ -140,7 +149,7 @@ def objective(trial):
     # -------------------------------
     # Model setup
     # -------------------------------
-    n_features = len(feature_cols)
+    n_features = X_train.shape[-1]
     model = LSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)

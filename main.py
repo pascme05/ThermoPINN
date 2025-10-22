@@ -65,8 +65,9 @@ def main():
     batch_size = 32                                                                                                      # Batch size for training
     hidden_dim = 256                                                                                                       # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
+    dropout = 0.3
     lr = 1.67e-3                                                                                                            # Learning rate for optimizer
-    epochs = 10                                                                                                          # Maximum number of training epochs
+    epochs = 100                                                                                                          # Maximum number of training epochs
     lambda_phys = 0.06                                                                                                    # Weight for physics-informed loss term
     lambda_init = 0.50                                                                                                   # Weight for initial condition loss (currently unused)
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
@@ -159,6 +160,7 @@ def main():
     # Norm values
     X_mean, X_std = df_train[feature_cols].mean(), df_train[feature_cols].std() + 1e-8
     T_min, T_max = df_train["Tsw"].min(), df_train["Tsw"].max()
+    t_max = df_train["time_id"].values.max()
 
     # Normalize
     X_train, T_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min)
@@ -175,9 +177,9 @@ def main():
     # -------------------------------
     # Add Time as feature
     # -------------------------------
-    t_norm = df_train["time_id"].values / df_train["time_id"].values.max()
+    t_norm = df_train["time_id"].values / t_max
     X_train = np.concatenate([X_train, t_norm[:, np.newaxis]], axis=-1)
-    t_norm = df_val["time_id"].values / df_val["time_id"].values.max()
+    t_norm = df_val["time_id"].values / t_max
     X_val = np.concatenate([X_val, t_norm[:, np.newaxis]], axis=-1)
 
     # -------------------------------
@@ -197,7 +199,7 @@ def main():
     # Model setup
     # -------------------------------
     n_features = X_train.shape[1]
-    model = LSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
+    model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout).to(DEVICE)
     # model = MultiPathLSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)
@@ -294,7 +296,7 @@ def main():
         X_test, T_test, _ = normalize(df_session, feature_cols, X_mean, X_std, T_max, T_min)
 
         # Add time
-        t_norm = df_session["time_id"].values / df_session["time_id"].values.max()
+        t_norm = df_session["time_id"].values / t_max
         X_test = np.concatenate([X_test, t_norm[:, np.newaxis]], axis=-1)
 
         with torch.no_grad():

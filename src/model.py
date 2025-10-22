@@ -1,4 +1,5 @@
 import torch.nn as nn
+import math
 from src.auxiliary import *
 
 
@@ -6,11 +7,11 @@ from src.auxiliary import *
 # LSTM-PINN Model
 # ----------------------------------------------------
 class LSTM_PINN(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int = 128, num_layers: int = 2):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 128, num_layers: int = 2, dropout: float = 0.2):
         super().__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers,
-                            batch_first=True, dropout=0.2)
-        self.fc = nn.Linear(hidden_dim, 1)
+                            batch_first=True, dropout=dropout)
+        self.fc = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out, _ = self.lstm(x)
@@ -130,9 +131,9 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
 
     rhs = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
     res = dTdt_pred - rhs
-    """/ (Tmax - Tmin)"""
+
     weights = torch.exp(-t / R * C).unsqueeze(0)
-    ic_mse = torch.mean(weights * ((T_t - T0) ) ** 2)
+    ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
 
     data_mse = torch.mean((T_pred - T) ** 2)
     phys_mse = torch.mean(res ** 2)
