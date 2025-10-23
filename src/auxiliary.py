@@ -140,14 +140,14 @@ def make_sequences(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray
             np.array(Tamb_seq), np.array(t_seq), np.array(T0_seq))
 
 
-def normalize(df_part: pd.DataFrame, feature_cols: list[str], X_mean: pd.Series, X_std: pd.Series,
+def normalize(df_part: pd.DataFrame, feature_cols: list[str], selY, selR, X_mean: pd.Series, X_std: pd.Series,
               T_max: float, T_min: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Normalize features and target temperature for neural network input.
     """
     X = (df_part[feature_cols] - X_mean) / X_std
-    T = (df_part["Tsw"].values - T_min) / (T_max - T_min)
-    Tamb = (df_part["Tc"].values - T_min) / (T_max - T_min)
+    T = (df_part[selY].values - T_min) / (T_max - T_min)
+    Tamb = (df_part[selR].values - T_min) / (T_max - T_min)
     return X.values, T, Tamb
 
 

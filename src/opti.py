@@ -1,30 +1,33 @@
 # ----------------------------------------------------
 # pinn_thermal_lstm_optuna.py
-# Author: Pascal Schirmer / ChatGPT-5
-# Date: 2025-10-14
-# Description:
-#   Physics-Informed Neural Network (PINN) using LSTM for
-#   thermal modeling with automated hyperparameter optimization
-#   via Optuna.
-# ----------------------------------------------------
-
+#######################################################################################################################
+# Title:        ThermoPINN
+# Topic:        Physics Informed Neural Network (PINN) for thermal modeling
+# File:         opti
+# Date:         22.10.2025
+# Author:       Dr. Pascal A. Schirmer
+# Version:      V.0.2
+#######################################################################################################################
 import os
 import optuna
 import torch.optim as optim
 from src.model import *
 
-# ----------------------------------------------------
+#######################################################################################################################
 # Global setup
-# ----------------------------------------------------
+#######################################################################################################################
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = "data/motor_temp.csv"
 
 
-# ----------------------------------------------------
+#######################################################################################################################
 # Objective function for Optuna
-# ----------------------------------------------------
+#######################################################################################################################
 def objective(trial):
+    # ==============================================================================
+    # Settings
+    # ==============================================================================
     # -------------------------------
     # Hyperparameter suggestions
     # -------------------------------
@@ -33,10 +36,12 @@ def objective(trial):
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
     seq_len = trial.suggest_int("seq_len", 200, 800, step=100)
+    dropout = trial.suggest_float("dropout", 0.05, 0.5)
     lambda_phys = trial.suggest_float("lambda_phys", 0.01, 1.0, log=True)
     lambda_init = trial.suggest_float("lambda_init", 0.0, 0.5)
     epochs = 10
     stride = 10
+    patience = 5
 
     # -------------------------------
     # Fixed motor/thermal parameters
@@ -50,32 +55,47 @@ def objective(trial):
     dt_s = 1.0
 
     # -------------------------------
-    # Load data once globally (cache)
+    # Dataset IDs
     # -------------------------------
+    test_ids = [60, 62, 74]
+    val_ids = [10, 48, 63]
+    id_list = [2, 3, 5, 7, 8, 9, 12, 13, 14, 15, 16, 17, 19, 21, 24]
+
+    # -------------------------------
+    # Input and Output Select
+    # -------------------------------
+    selX = ["Ta", "Tc", "Is", "Id", "Iq", "Us", "Ud", "Uq", "Wm", "Mm", "Sel", "SelI", "SelW"]
+    selY = "Tsw"
+    selR = "Tc"
+
+    # ==============================================================================
+    # Load data once globally (cache)
+    # ==============================================================================
     global df_cache
     if "df_cache" not in globals():
         df_cache = pd.read_csv(DATA_PATH)
-
     df = df_cache.copy()
 
     # -------------------------------
     # RC identification
     # -------------------------------
-    id_list = [2, 3, 5, 7, 8, 9, 12, 13, 14, 15, 16, 17, 19, 21, 24]
     id_data = []
     for id_sel in id_list:
+        # Extract data
         df_step = df[df["id"] == id_sel].copy().head(3500)
         time_step = df_step["time"].values - df_step["time"].values[0]
-        T_amb = df_step["Tc"].values
-        T_step = df_step["Tsw"].values
+        T_amb = df_step[selR].values
+        T_step = df_step[selY].values
         Is = df_step["Is"].values / np.sqrt(2)
         Wm = df_step["Wm"].values
 
+        # Scale losses
         f1 = (1 + alpha * (T_step - Tref))
         f2 = 1 + beta_1 * (Wm / n_max) + beta_2 * (Wm / n_max) ** 2
         P_step = 3 * Rs * Is ** 2 * f1 * f2
         dt_s = np.mean(np.diff(time_step))
 
+        # Fit model
         R_fit, C_fit = identify_rc(P_step.flatten(), T_step, T_amb, dt_s)
         id_data.append({"id": id_sel, "Is": np.mean(Is), "Wm": np.mean(Wm),
                         "Pv": np.max(P_step), "R": R_fit, "C": C_fit})
@@ -83,10 +103,12 @@ def objective(trial):
     df_ident = pd.DataFrame(id_data)
     R_hat, C_hat = df_ident["R"].mean(), df_ident["C"].mean()
 
+    # ==============================================================================
+    # Pre-processing
+    # ==============================================================================
     # -------------------------------
     # Feature computation
     # -------------------------------
-    # Calc features
     f1 = (1 + alpha * (df["Tc"] - Tref))
     f2 = 1 + beta_1 * (df["Wm"] / n_max) + beta_2 * (df["Wm"] / n_max) ** 2
     df["Pv_s"] = 3 * Rs * (df["Is"] / np.sqrt(2)) ** 2 * f1 * f2
@@ -94,14 +116,9 @@ def objective(trial):
     df["SelI"] = df["Sel"] * df["Is"]
     df["SelW"] = df["Sel"] * df["Wm"]
 
-    # Remove features
-    feature_cols = [c for c in df.columns if c not in ["id", "time", "time_id", "T0", "Tsw", "Tst", "Tso", "Trm"]]
-
     # -------------------------------
     # Data split
     # -------------------------------
-    test_ids = [60, 62, 74]
-    val_ids = [10, 48, 63]
     train_ids = [i for i in df["id"].unique() if i not in test_ids + val_ids]
     df_train = df[df["id"].isin(train_ids)].copy()
     df_val = df[df["id"].isin(val_ids)].copy()
@@ -110,22 +127,22 @@ def objective(trial):
     # Normalization
     # -------------------------------
     # Norm values
-    X_mean, X_std = df_train[feature_cols].mean(), df_train[feature_cols].std() + 1e-8
-    T_min, T_max = df_train["Tsw"].min(), df_train["Tsw"].max()
-    t_max = df_train["time_id"].values.max()
+    X_mean, X_std = df_train[selX].mean(), df_train[selX].std() + 1e-8
+    T_min, T_max = df_train[selY].min(), df_train[selY].max()
+    t_max = df_train["time_id"].max()
 
     # Normalize
-    X_train, T_train, Tamb_train = normalize(df_train, feature_cols, X_mean, X_std, T_max, T_min)
-    X_val, T_val, Tamb_val = normalize(df_val, feature_cols, X_mean, X_std, T_max, T_min)
+    X_train, T_train, Tamb_train = normalize(df_train, selX, selY, selR, X_mean, X_std, T_max, T_min)
+    X_val, T_val, Tamb_val = normalize(df_val, selX, selY, selR, X_mean, X_std, T_max, T_min)
 
     # Calc Power
     P_train = 3 * Rs * (df_train["Is"] / np.sqrt(2)) ** 2
     P_val = 3 * Rs * (df_val["Is"] / np.sqrt(2)) ** 2
 
     # Scale Temperature-dependent Power
-    P_train *= (1 + alpha * (df_train["Tsw"] - Tref)) * (
+    P_train *= (1 + alpha * (df_train[selY] - Tref)) * (
                 1 + beta_1 * (df_train["Wm"] / n_max) + beta_2 * (df_train["Wm"] / n_max) ** 2)
-    P_val *= (1 + alpha * (df_val["Tsw"] - Tref)) * (
+    P_val *= (1 + alpha * (df_val[selY] - Tref)) * (
                 1 + beta_1 * (df_val["Wm"] / n_max) + beta_2 * (df_val["Wm"] / n_max) ** 2)
 
     # -------------------------------
@@ -146,17 +163,23 @@ def objective(trial):
                                 df_val["T0"].values, seq_len, stride, batch_size, DEVICE,
                                 df[df["id"].isin(test_ids)]["id"].to_numpy(), shuffle=False)
 
-    # -------------------------------
+    # ==============================================================================
     # Model setup
-    # -------------------------------
+    # ==============================================================================
     n_features = X_train.shape[-1]
-    model = LSTM_PINN(input_dim=n_features, hidden_dim=hidden_dim, num_layers=num_layers).to(DEVICE)
+    model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                      num_layers=num_layers, dropout=dropout).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)
     dt_torch = torch.tensor(dt_s, dtype=torch.float32, device=DEVICE)
 
+    # ==============================================================================
+    # Training
+    # ==============================================================================
+    # ------------------------------------------
+    # Init
+    # ------------------------------------------
     best_val_loss = np.inf
-    patience = 5
     patience_counter = 0
 
     # -------------------------------
@@ -203,4 +226,3 @@ def objective(trial):
                 break
 
     return best_val_loss
-

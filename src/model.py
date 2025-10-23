@@ -1,5 +1,4 @@
 import torch.nn as nn
-import math
 from src.auxiliary import *
 
 
@@ -132,7 +131,7 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
     rhs = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
     res = dTdt_pred - rhs
 
-    weights = torch.exp(-t / R * C).unsqueeze(0)
+    weights = torch.exp(-t / (R * C)).unsqueeze(0)
     ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
 
     data_mse = torch.mean((T_pred - T) ** 2)
