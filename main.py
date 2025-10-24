@@ -33,13 +33,13 @@ def main():
 
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
+    DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
     MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_best_pinn.pt")
 
     # ==============================================================================
     # General Parameter
     # ==============================================================================
-    W = 5                                                                                                                # Window length for filtering data
+    W = 5                                                                                                               # Window length for filtering data
 
     # ==============================================================================
     # Physical parameters
@@ -54,8 +54,8 @@ def main():
     # ==============================================================================
     # Training hyperparameters
     # ==============================================================================
-    seq_len = 1300                                                                                                       # Sequence length (timesteps per training sample)
-    stride = 50                                                                                                          # Step size between training sequences
+    seq_len = 1200                                                                                                       # Sequence length (timesteps per training sample)
+    stride = 100                                                                                                          # Step size between training sequences
     batch_size = 32                                                                                                      # Batch size for training
     hidden_dim = 256                                                                                                     # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
@@ -83,7 +83,32 @@ def main():
     ###################################################################################################################
     # Load data
     ###################################################################################################################
+    # ==============================================================================
+    # Input and Output Select
+    # ==============================================================================
     df = pd.read_csv(DATA_PATH)
+
+    # ==============================================================================
+    # Rename data
+    # ==============================================================================
+    df = df.rename(columns={'ambient': 'Ta', 'coolant': 'Tc', 'i_d': 'Id', 'i_q': 'Iq', 'u_d': 'Ud', 'u_q': 'Uq',
+                            'profile_id': 'id', 'torque': 'Mm', 'motor_speed': 'Wm', 'stator_winding': 'Tsw'})
+
+    # ==============================================================================
+    # Calculate features
+    # ==============================================================================
+    df["Is"] = (df["Id"] ** 2 + df["Iq"] ** 2) ** 0.5
+    df["Us"] = (df["Ud"] ** 2 + df["Uq"] ** 2) ** 0.5
+    df["Sel"] = 3 / 2 * df["Is"] * df["Us"]
+    df["SelI"] = df["Sel"] * df["Is"]
+    df["SelW"] = df["Sel"] * df["Wm"]
+    df['T0'] = df.groupby('id')['Tsw'].transform('first')
+    df["time"] = np.linspace(0, (len(df["Is"])*0.5 - 1/2), len(df["Is"]))
+    df['time_id'] = df.groupby('id')['time'].transform(lambda x: x - x.iloc[0])
+
+    # ==============================================================================
+    # Time vector
+    # ==============================================================================
     dt_s = df["time"].values[1] - df["time"].values[0]
 
     ###################################################################################################################
@@ -144,8 +169,8 @@ def main():
     # ==============================================================================
     # Filter Input
     # ==============================================================================
-    df["Ta"] = (df["Ta"].rolling(window=W, center=True, min_periods=1).mean())
-    df["Tc"] = (df["Tc"].rolling(window=W, center=True, min_periods=1).mean())
+    df["Ta"] = (df["Ta"].rolling(window=W, center=True, min_periods=1).median())
+    df["Tc"] = (df["Tc"].rolling(window=W, center=True, min_periods=1).median())
 
     # ==============================================================================
     # Scale losses
@@ -153,13 +178,6 @@ def main():
     f1 = (1 + alpha * (df[selR] - Tref))
     f2 = 1 + beta_1 * (df["Wm"] / n_max) + beta_2 * (df["Wm"] / n_max) ** 2
     df["Pv_s"] = 3 * Rs * (df["Is"] / np.sqrt(2)) ** 2 * f1 * f2
-
-    # ==============================================================================
-    # Calculate features
-    # ==============================================================================
-    df["Sel"] = 3 / 2 * df["Is"] * df["Us"]
-    df["SelI"] = df["Sel"] * df["Is"]
-    df["SelW"] = df["Sel"] * df["Wm"]
 
     # ==============================================================================
     # Split sets
@@ -221,7 +239,7 @@ def main():
                 train_loader = prepare_loader(X_train, T_train, P_train, Tamb_train, t_train, T0_train,
                                               seq_len, stride, batch_size, DEVICE, ids_all[train_idx], shuffle=True)
                 val_loader = prepare_loader(X_val, T_val, P_val, Tamb_val, t_val, T0_val,
-                                            seq_len, stride, batch_size, DEVICE, ids_all[val_idx], shuffle=False)
+                                            seq_len, stride, batch_size, DEVICE, ids_all[val_idx], shuffle=True)
 
                 # Init model
                 model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
@@ -395,7 +413,7 @@ def main():
 
             # Plot measured vs predicted
             if ENABLE_PLOTS:
-                time = np.linspace(0, (len(err_all) - 1) / 60, len(err_all))  # time in minutes
+                time = np.linspace(0, (len(err_all) - 1) / 60 * dt_s, len(err_all))  # time in minutes
                 fig, axs = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
                 fig.suptitle(f"Model Comparison", fontsize=12, fontweight="bold")
 
@@ -485,7 +503,7 @@ def main():
 
             # Plot averaged prediction with ±1σ band
             if ENABLE_PLOTS:
-                time = np.linspace(0, len(T_true_global) / 60, len(T_true_global))
+                time = np.linspace(0, len(T_true_global) / 60 * dt_s, len(T_true_global))
                 fig, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
                 fig.suptitle(f"Model Comparison", fontsize=12, fontweight="bold")
 
