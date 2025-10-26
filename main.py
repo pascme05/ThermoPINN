@@ -27,7 +27,7 @@ def main():
     # ==============================================================================
     # Settings
     # ==============================================================================
-    TRAIN_MODEL = True
+    TRAIN_MODEL = False
     ENABLE_PLOTS = True
     ORIGINAL_DATA = False
     N_FOLDS = 1
@@ -37,12 +37,12 @@ def main():
     DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
     if ORIGINAL_DATA:
         DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
-    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_opti_nn.pt")
+    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_opti_pinn_1Hz.pt")
 
     # ==============================================================================
     # General Parameter
     # ==============================================================================
-    W = 5                                                                                                               # Window length for filtering data
+    W = 5                                                                                                                # Window length for filtering data
 
     # ==============================================================================
     # Physical parameters
@@ -58,6 +58,23 @@ def main():
     # Training hyperparameters
     # ==============================================================================
     # ------------------------------------------
+    # Opti NN
+    # ------------------------------------------
+    """
+    seq_len = 1400  # Sequence length (timesteps per training sample)
+    stride = 30  # Step size between training sequences
+    batch_size = 32  # Batch size for training
+    hidden_dim = 256  # Hidden units in LSTM layers
+    num_layers = 2  # Number of stacked LSTM layers
+    dropout = 0.25  # Dropout for the LSTM layer
+    lr = 1.67e-3  # Learning rate for optimizer
+    epochs = 100  # Maximum number of training epochs
+    lambda_phys = 0.0  # Weight for physics-informed loss term
+    lambda_init = 0.0  # Weight for initial condition loss
+    patience = 10  # Early stopping patience (epochs without improvement)
+    """
+
+    # ------------------------------------------
     # Opti PINN
     # ------------------------------------------
     seq_len = 1400                                                                                                       # Sequence length (timesteps per training sample)
@@ -70,21 +87,6 @@ def main():
     epochs = 100                                                                                                         # Maximum number of training epochs
     lambda_phys = 0.1                                                                                                    # Weight for physics-informed loss term
     lambda_init = 0.5                                                                                                    # Weight for initial condition loss
-    patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
-
-    # ------------------------------------------
-    # Opti NN
-    # ------------------------------------------
-    seq_len = 1400                                                                                                       # Sequence length (timesteps per training sample)
-    stride = 30                                                                                                          # Step size between training sequences
-    batch_size = 32                                                                                                      # Batch size for training
-    hidden_dim = 256                                                                                                     # Hidden units in LSTM layers
-    num_layers = 2                                                                                                       # Number of stacked LSTM layers
-    dropout = 0.25                                                                                                       # Dropout for the LSTM layer
-    lr = 1.67e-3                                                                                                         # Learning rate for optimizer
-    epochs = 100                                                                                                         # Maximum number of training epochs
-    lambda_phys = 0.0                                                                                                    # Weight for physics-informed loss term
-    lambda_init = 0.0                                                                                                    # Weight for initial condition loss
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
 
     # ==============================================================================
