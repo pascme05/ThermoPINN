@@ -157,18 +157,23 @@ class LSTM_PINN(nn.Module):
 
 ### 🔍 Quantitative Insights
 
-The results demonstrate that incorporating **physical constraints** through the **PINN formulation** yields a consistent performance improvement over the purely data-driven neural network:
+The results demonstrate that incorporating **physical constraints** through the **PINN formulation** yields a consistent 
+performance improvement over the purely data-driven neural network:
 
 - **Lower MSE and MAE across all test cases**:  
-  The PINN achieves roughly **50–60 % lower MSE** and **~40 % lower MAE**, indicating a smoother and more physically consistent temperature trajectory.
+  The PINN achieves roughly **50–60 % lower MSE** and **~40 % lower MAE**, indicating a smoother and more physically 
+  consistent temperature trajectory.
 
 - **Reduced generalization gap**:  
-  Even when trained on limited operating conditions, the PINN generalizes better to unseen load and speed profiles.  
-  This is attributed to the physics residual acting as a **regularization term**, discouraging unrealistic temperature fluctuations.
+  Even when trained on limited operating conditions, the PINN generalizes better to unseen load and speed profiles. This
+  is attributed to the physics residual acting as a **regularization term**, discouraging unrealistic temperature 
+  fluctuations.
 
 - **Interpretation of MAX errors**:  
-  While both models can occasionally produce larger instantaneous deviations (e.g., rapid transients), the PINN consistently limits overshooting due to its adherence to the RC heat balance constraint.  
-  The slightly higher MAX error for test ID 74 (9.31 °C vs 5.78 °C) likely results from the RC simplification, which cannot fully capture spatially distributed effects under fast thermal gradients.
+  While both models can occasionally produce larger instantaneous deviations (e.g., rapid transients), the PINN consistently 
+  limits overshooting due to its adherence to the RC heat balance constraint. The slightly higher MAX error for test 
+  ID 74 (9.31 °C vs 5.78 °C) likely results from the RC simplification, which cannot fully capture spatially distributed
+  effects under fast thermal gradients.
 
 ---
 
