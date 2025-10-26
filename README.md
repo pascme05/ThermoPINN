@@ -153,6 +153,33 @@ class LSTM_PINN(nn.Module):
 | 74       | 2.78 / 2.07     | 1.35 / 1.06     | 5.78 / 9.31     |
 | **Avg**  | **5.26 / 2.41** | **1.61 / 0.95** | **17.7 / 14.6** |
 
+
+Performing 10-fold cross-validation by training ten models, after removing IDs 60, 62, 74 as a hold-out generalisation
+test set, the following performance is obtained for each of the ten models:
+
+```python
+Fold 0: MSE=2.6824, MAE=1.0193, R2=0.9964, MAX=13.2819
+Fold 1: MSE=2.5699, MAE=1.0912, R2=0.9965, MAX=15.3820
+Fold 2: MSE=4.2839, MAE=1.5628, R2=0.9942, MAX=12.8137
+Fold 3: MSE=2.5640, MAE=1.1065, R2=0.9965, MAX=14.0120
+Fold 4: MSE=7.5126, MAE=2.1228, R2=0.9898, MAX=12.7229
+Fold 5: MSE=3.3325, MAE=1.3359, R2=0.9955, MAX=13.3533
+Fold 6: MSE=2.7120, MAE=1.2651, R2=0.9963, MAX=12.2236
+Fold 7: MSE=2.5097, MAE=1.1276, R2=0.9966, MAX=15.1577
+Fold 8: MSE=2.6025, MAE=1.1967, R2=0.9965, MAX=13.4628
+Fold 9: MSE=2.2765, MAE=1.1289, R2=0.9969, MAX=15.8944
+```
+
+Averaging these results leads to the following average performance for the generalisation test set (ID 60, 62, 74) 
+including the standard deviation:
+
+```python
+MSE = 3.3046 ± 1.5873
+MAE = 1.2957 ± 0.3296
+R2  = 0.9955 ± 0.0022
+MAX = 13.8304 ± 1.2458
+```
+
 ---
 
 ### 🔍 Quantitative Insights
