@@ -9,7 +9,7 @@
 import os
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 # from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 # from sklearn.preprocessing import PolynomialFeatures
 # from sklearn.linear_model import LinearRegression
@@ -243,16 +243,17 @@ def main():
             # Init
             # ------------------------------------------
             print(f"\n🔹 Starting {N_FOLDS}-Fold Cross Validation")
-            kfold = KFold(n_splits=N_FOLDS, shuffle=True, random_state=42)
+            kfold = GroupKFold(n_splits=N_FOLDS, shuffle=True, random_state=42)
             fold_metrics = []
             n_features = X_all.shape[1]
 
             # ------------------------------------------
             # Iterate over Fold
             # ------------------------------------------
-            for fold, (train_idx, val_idx) in enumerate(kfold.split(X_all)):
+            for fold, (train_idx, val_idx) in enumerate(kfold.split(X_all, y=None, groups=df_trainval["id"].values)):
                 # Init
                 print(f"\n--- Fold {fold + 1}/{N_FOLDS} ---")
+                print(f"Fold {fold + 1}: {len(np.unique(X_all[train_idx]))} train IDs, {len(np.unique(X_all[val_idx]))} val IDs")
 
                 # Split data
                 X_train, X_val = X_all[train_idx], X_all[val_idx]
