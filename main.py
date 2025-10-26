@@ -29,12 +29,15 @@ def main():
     # ==============================================================================
     TRAIN_MODEL = True
     ENABLE_PLOTS = True
+    ORIGINAL_DATA = False
     N_FOLDS = 1
 
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
-    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_best_pinn.pt")
+    DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
+    if ORIGINAL_DATA:
+        DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
+    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_opti_nn.pt")
 
     # ==============================================================================
     # General Parameter
@@ -54,16 +57,34 @@ def main():
     # ==============================================================================
     # Training hyperparameters
     # ==============================================================================
-    seq_len = 1200                                                                                                       # Sequence length (timesteps per training sample)
-    stride = 100                                                                                                          # Step size between training sequences
+    # ------------------------------------------
+    # Opti PINN
+    # ------------------------------------------
+    seq_len = 1400                                                                                                       # Sequence length (timesteps per training sample)
+    stride = 30                                                                                                          # Step size between training sequences
     batch_size = 32                                                                                                      # Batch size for training
     hidden_dim = 256                                                                                                     # Hidden units in LSTM layers
     num_layers = 2                                                                                                       # Number of stacked LSTM layers
-    dropout = 0.3                                                                                                        # Dropout for the LSTM layer
+    dropout = 0.25                                                                                                       # Dropout for the LSTM layer
     lr = 1.67e-3                                                                                                         # Learning rate for optimizer
     epochs = 100                                                                                                         # Maximum number of training epochs
-    lambda_phys = 0.06                                                                                                   # Weight for physics-informed loss term
-    lambda_init = 0.50                                                                                                   # Weight for initial condition loss (currently unused)
+    lambda_phys = 0.1                                                                                                    # Weight for physics-informed loss term
+    lambda_init = 0.5                                                                                                    # Weight for initial condition loss
+    patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
+
+    # ------------------------------------------
+    # Opti NN
+    # ------------------------------------------
+    seq_len = 1400                                                                                                       # Sequence length (timesteps per training sample)
+    stride = 30                                                                                                          # Step size between training sequences
+    batch_size = 32                                                                                                      # Batch size for training
+    hidden_dim = 256                                                                                                     # Hidden units in LSTM layers
+    num_layers = 2                                                                                                       # Number of stacked LSTM layers
+    dropout = 0.25                                                                                                       # Dropout for the LSTM layer
+    lr = 1.67e-3                                                                                                         # Learning rate for optimizer
+    epochs = 100                                                                                                         # Maximum number of training epochs
+    lambda_phys = 0.0                                                                                                    # Weight for physics-informed loss term
+    lambda_init = 0.0                                                                                                    # Weight for initial condition loss
     patience = 10                                                                                                        # Early stopping patience (epochs without improvement)
 
     # ==============================================================================
@@ -89,22 +110,26 @@ def main():
     df = pd.read_csv(DATA_PATH)
 
     # ==============================================================================
-    # Rename data
+    # Original data
     # ==============================================================================
-    df = df.rename(columns={'ambient': 'Ta', 'coolant': 'Tc', 'i_d': 'Id', 'i_q': 'Iq', 'u_d': 'Ud', 'u_q': 'Uq',
-                            'profile_id': 'id', 'torque': 'Mm', 'motor_speed': 'Wm', 'stator_winding': 'Tsw'})
+    if ORIGINAL_DATA:
+        # ------------------------------------------
+        # Rename
+        # ------------------------------------------
+        df = df.rename(columns={'ambient': 'Ta', 'coolant': 'Tc', 'i_d': 'Id', 'i_q': 'Iq', 'u_d': 'Ud', 'u_q': 'Uq',
+                                'profile_id': 'id', 'torque': 'Mm', 'motor_speed': 'Wm', 'stator_winding': 'Tsw'})
 
-    # ==============================================================================
-    # Calculate features
-    # ==============================================================================
-    df["Is"] = (df["Id"] ** 2 + df["Iq"] ** 2) ** 0.5
-    df["Us"] = (df["Ud"] ** 2 + df["Uq"] ** 2) ** 0.5
+        # ------------------------------------------
+        # Calculate features
+        # ------------------------------------------
+        df["Is"] = (df["Id"] ** 2 + df["Iq"] ** 2) ** 0.5
+        df["Us"] = (df["Ud"] ** 2 + df["Uq"] ** 2) ** 0.5
+        df['T0'] = df.groupby('id')['Tsw'].transform('first')
+        df["time"] = np.linspace(0, (len(df["Is"])*0.5 - 1/2), len(df["Is"]))
+        df['time_id'] = df.groupby('id')['time'].transform(lambda x: x - x.iloc[0])
     df["Sel"] = 3 / 2 * df["Is"] * df["Us"]
     df["SelI"] = df["Sel"] * df["Is"]
     df["SelW"] = df["Sel"] * df["Wm"]
-    df['T0'] = df.groupby('id')['Tsw'].transform('first')
-    df["time"] = np.linspace(0, (len(df["Is"])*0.5 - 1/2), len(df["Is"]))
-    df['time_id'] = df.groupby('id')['time'].transform(lambda x: x - x.iloc[0])
 
     # ==============================================================================
     # Time vector
