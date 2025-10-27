@@ -43,6 +43,30 @@ class LSTM_PINN_HIDDEN(nn.Module):
 
 
 # ----------------------------------------------------
+# LSTM-PINN Init Model
+# ----------------------------------------------------
+class LSTM_PINN_PhysicalInit(nn.Module):
+    def __init__(self, input_dim, state_dim, output_dim, hidden_dim=128, num_layers=2, dropout=0.2):
+        super().__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers,
+                            batch_first=True, dropout=dropout)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.state_encoder = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.Tanh()
+        )
+
+    def forward(self, x, state):
+        # Map physical state -> hidden state initialization
+        h0 = self.state_encoder(state)  # [B, H]
+        h0 = h0.unsqueeze(0).repeat(self.lstm.num_layers, 1, 1)
+        c0 = torch.zeros_like(h0)
+
+        out, _ = self.lstm(x, (h0, c0))
+        out = self.fc(out)
+        return out.squeeze(-1)
+
+# ----------------------------------------------------
 # LSTM-PINN Multi Model
 # ----------------------------------------------------
 class MultiPathLSTM_PINN(nn.Module):
