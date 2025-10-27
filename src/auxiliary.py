@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+from scipy.optimize import least_squares
 
 
 # ----------------------------------------------------
@@ -74,6 +75,100 @@ def foster_rc(T_amb: np.ndarray, P: np.ndarray, dt: float, Rth: float, Cth: floa
         T_est[i] = alpha * T_est[i - 1] + beta * (P[i] + P[i - 1])
 
     return T_est + T_amb
+
+
+def fit_zth(time, dT, Pv, num_nodes=3):
+    """
+    Fit Zth function with a variable number of RC nodes.
+    Initialization of rc0, lb, ub done internally based on Rth and A.
+
+    Parameters:
+    - time: np.array, time data points
+    - dT: np.array, measured temperature change
+    - Pv: scalar, parameter used for rc0 initialization
+    - num_nodes: int, number of RC nodes (default 5)
+
+    Returns:
+    - rc: optimized parameters array (length 2 * num_nodes)
+    - rc_mod: array combining rc[0:num_nodes] and rc[num_nodes:2*num_nodes] / rc[0:num_nodes]
+    """
+
+    # Initialize
+    rc0 = np.ones(2 * num_nodes)
+
+    # Calc Rth
+    Zth = dT / Pv
+
+    # Find index ix minimizing the absolute difference
+    val63 = Zth.max() * (1 - np.exp(-1))
+    ix = np.argmin(np.abs(Zth - val63))
+
+    # Initialize rc0 time constants (last num_nodes elements)
+    rc0 = np.max(Zth) * np.random.rand(2 * num_nodes)
+    rc0[num_nodes:2*num_nodes] = 3 * time[ix] * np.random.rand(num_nodes)
+
+    # Functions
+    def fun(rc, time):
+        result = np.zeros_like(time, dtype=float)
+        for i in range(num_nodes):
+            result += rc[i] * (1 - np.exp(-time / rc[num_nodes + i]))
+        return result
+
+    def residuals(rc, time, Zth):
+        return fun(rc, time) - Zth
+
+    # Bounds
+    lb = np.zeros(2 * num_nodes)
+    ub = np.max(Zth) * np.ones(2 * num_nodes)
+    ub[num_nodes:2*num_nodes] = 5 * time[ix]
+
+    # Fit using Levenberg-Marquardt (no bounds support for 'lm', so lb/ub are unused here)
+    # result = least_squares(residuals, rc0, args=(time, Zth), method='lm')
+    result = least_squares(residuals, rc0, args=(time, Zth), method='trf', bounds=(lb, ub))
+
+    rc = result.x
+    Rth = rc[0:num_nodes]
+    Cth = rc[num_nodes:2*num_nodes] / Rth
+
+    return Rth, Cth
+
+
+def predict_rc(Pv, time, Tamb, Rth, Cth):
+    """
+    Estimate temperature Tj_est over time using fitted RC parameters.
+
+    Parameters:
+    - rc_mod: np.array, shape (2*num_nodes,), [Rth_1,...,Rth_n, tau_1/Rth_1,..., tau_n/Rth_n]
+    - Pv: np.array, power profile over time (length = len(time))
+    - time: np.array, time vector (length = len(Pv))
+    - Tamb: np.array, ambient temperature data (length = len(time))
+
+    Returns:
+    - Tj_est: np.array, estimated junction temperature over time (length = len(time))
+    """
+
+    # Parameters and Variables
+    num_nodes = len(Rth)
+    tau = Rth * Cth
+    dt = np.diff(time, prepend=time[0])
+
+    # Initialize temperature arrays
+    T_est = np.zeros((len(time), num_nodes))
+    Tj_est = np.zeros(len(time))
+
+    # Iterative estimation
+    for i in range(1, len(time)):
+        for ii in range(num_nodes):
+            denom = 2 * tau[ii] + dt[i]
+            numer1 = (2 * tau[ii] - dt[i]) * T_est[i - 1, ii]
+            numer2 = (Rth[ii] * dt[i]) * (Pv[i] + Pv[i - 1])
+            T_est[i, ii] = (numer1 + numer2) / denom
+        Tj_est[i] = np.sum(T_est[i, :]) + Tamb[i]
+
+    # For i=0, Tj_est is just ambient temperature (or could be set differently)
+    Tj_est[0] = Tamb[0]
+
+    return Tj_est
 
 
 def make_sequences2(X: np.ndarray, T: np.ndarray, P: np.ndarray, Tamb: np.ndarray,

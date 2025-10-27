@@ -192,7 +192,7 @@ def objective(trial):
         for Xb, Tb, Pb, Tambb, t_seq, T0b in train_loader:
             optimizer.zero_grad()
             loss, _, _, _ = pinn_loss_lstm(model, Xb, Tb, Pb, t_seq, T0b, dt_torch,
-                                           R_hat, C_hat, Tambb, T_min, T_max,
+                                           R_hat, C_hat, 1, Tambb, T_min, T_max,
                                            lambda_phys, lambda_init)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -205,7 +205,7 @@ def objective(trial):
         with torch.no_grad():
             for Xv, Tv, Pv, Tambv, tv_seq, T0v in val_loader:
                 v_loss, _, _, _ = pinn_loss_lstm(model, Xv, Tv, Pv, tv_seq, T0v, dt_torch,
-                                                 R_hat, C_hat, Tambv, T_min, T_max,
+                                                 R_hat, C_hat, 1, Tambv, T_min, T_max,
                                                  lambda_phys, lambda_init)
                 val_total += v_loss.item()
 

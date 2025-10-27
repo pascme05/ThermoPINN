@@ -6,7 +6,7 @@ from src.model import *
 # Helper: Train one fold
 #######################################################################################################################
 def train_one_fold(model, optimizer, scheduler, train_loader, val_loader, dt_torch,
-                   R_hat, C_hat, T_min, T_max, lambda_phys, lambda_init,
+                   R_hat, C_hat, N_nodes, T_min, T_max, lambda_phys, lambda_init,
                    epochs, patience, mdl_name):
     best_val_loss = np.inf
     patience_counter = 0
@@ -18,7 +18,7 @@ def train_one_fold(model, optimizer, scheduler, train_loader, val_loader, dt_tor
             optimizer.zero_grad()
             loss, d_mse, p_mse, i_mse = pinn_loss_lstm(
                 model, Xb, Tb, Pb, t_seq, T0b, dt_torch,
-                R_hat, C_hat, Tambb, T_min, T_max,
+                R_hat, C_hat, N_nodes, Tambb, T_min, T_max,
                 lambda_phys, lambda_init
             )
             loss.backward()
@@ -33,7 +33,7 @@ def train_one_fold(model, optimizer, scheduler, train_loader, val_loader, dt_tor
             for Xv, Tv, Pv, Tambv, tv_seq, T0v in val_loader:
                 v_loss, v_dmse, v_pmse, v_imse = pinn_loss_lstm(
                     model, Xv, Tv, Pv, tv_seq, T0v, dt_torch,
-                    R_hat, C_hat, Tambv, T_min, T_max,
+                    R_hat, C_hat, N_nodes, Tambv, T_min, T_max,
                     lambda_phys, lambda_init
                 )
                 val_total += v_loss.item()

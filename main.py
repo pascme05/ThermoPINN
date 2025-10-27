@@ -9,12 +9,13 @@
 import os
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from sklearn.model_selection import KFold, GroupKFold
+from sklearn.model_selection import GroupKFold
 # from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 # from sklearn.preprocessing import PolynomialFeatures
 # from sklearn.linear_model import LinearRegression
 # from sklearn.pipeline import make_pipeline
 from src.helpTrain import *
+from scipy.stats import norm
 
 
 #######################################################################################################################
@@ -27,17 +28,21 @@ def main():
     # ==============================================================================
     # Settings
     # ==============================================================================
-    TRAIN_MODEL = False
-    ENABLE_PLOTS = True
-    ORIGINAL_DATA = False
-    N_FOLDS = 1
+    TRAIN_MODEL = True                                                                                                   # True: Model will be trained and tested, False: Testing
+    ENABLE_PLOTS = True                                                                                                  # True: Plot results
+    ORIGINAL_DATA = False                                                                                                # True. Transforms the original Kaggle data into the correct format
+    FIT_RC = False                                                                                                       # True: Fits the RC parameters based on measured step responses
+    N_FOLDS = 1                                                                                                          # Number of cross-validation runs
 
+    # ==============================================================================
+    # Paths
+    # ==============================================================================
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
     if ORIGINAL_DATA:
         DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
-    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_opti_pinn_1Hz.pt")
+    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_test_pinn_1Hz.pt")
 
     # ==============================================================================
     # General Parameter
@@ -47,12 +52,22 @@ def main():
     # ==============================================================================
     # Physical parameters
     # ==============================================================================
+    # ------------------------------------------
+    # Losses
+    # ------------------------------------------
     Rs = 14.1e-3                                                                                                         # Stator resistance [Ohm]
     alpha = 0.00393                                                                                                      # Temperature coefficient of resistance [1/°C]
     Tref = 20                                                                                                            # Reference temperature for Rs [°C]
     n_max = 6000                                                                                                         # Maximum motor speed [rpm]
     beta_1 = 0.315                                                                                                       # Parameter for frequency losses (linear)
     beta_2 = 0.616                                                                                                       # Parameter for frequency losses (quadratic)
+
+    # ------------------------------------------
+    # Thermal
+    # ------------------------------------------
+    N_nodes = 3                                                                                                          # Number of RC nodes
+    Rth = [0.0018, 0.0017, 0.0377]                                                                                       # List of thermal resistances [K/W]
+    tau = [57, 1783, 254]                                                                                                # List of thermal time constants [sec]
 
     # ==============================================================================
     # Training hyperparameters
@@ -150,40 +165,58 @@ def main():
     # ==============================================================================
     # Fit Rth/Cth
     # ==============================================================================
-    for id_sel in id_list:
-        # ------------------------------------------
-        # Extract data
-        # ------------------------------------------
-        df_step = df[df["id"] == id_sel].copy().head(3500)
-        time_step = df_step["time"].values - df_step["time"].values[0]
-        T_amb = df_step[selR].values
-        T_step = df_step[selY].values
-        Is = df_step["Is"].values / np.sqrt(2)
-        Wm = df_step["Wm"].values
+    if FIT_RC:
+        for id_sel in id_list:
+            # ------------------------------------------
+            # Extract data
+            # ------------------------------------------
+            df_step = df[df["id"] == id_sel].copy().head(3500)
+            time_step = df_step["time"].values - df_step["time"].values[0]
+            T_amb = df_step[selR].values
+            T_step = df_step[selY].values
+            dT = T_step - T_step[0]
+            Is = df_step["Is"].values / np.sqrt(2)
+            Wm = df_step["Wm"].values
+
+            # ------------------------------------------
+            # Scale losses
+            # ------------------------------------------
+            f1 = (1 + alpha * (T_step - Tref))
+            f2 = 1 + beta_1 * (Wm / n_max) + beta_2 * (Wm / n_max) ** 2
+            P_step = 3 * Rs * Is ** 2 * f1 * f2
+            dt_s = np.mean(np.diff(time_step))
+
+            # ------------------------------------------
+            # Fit model
+            # ------------------------------------------
+            if N_nodes > 1:
+                R_fit, C_fit = fit_zth(time_step, dT, P_step.mean(), num_nodes=N_nodes)
+                print(f"Identified: R_th = {np.sum(R_fit):.4f} K/W, tau = {np.sum(C_fit*R_fit):.1f} sec")
+            else:
+                R_fit, C_fit = identify_rc(P_step.flatten(), T_step, T_amb, dt_s)
+            id_data.append({"id": id_sel, "Is": np.mean(Is), "Wm": np.mean(Wm), "Pv": np.max(P_step),
+                            "R": R_fit, "C": C_fit})
 
         # ------------------------------------------
-        # Scale losses
+        # Average Rth and Cth
         # ------------------------------------------
-        f1 = (1 + alpha * (T_step - Tref))
-        f2 = 1 + beta_1 * (Wm / n_max) + beta_2 * (Wm / n_max) ** 2
-        P_step = 3 * Rs * Is ** 2 * f1 * f2
-        dt_s = np.mean(np.diff(time_step))
-
-        # ------------------------------------------
-        # Fit model
-        # ------------------------------------------
-        R_fit, C_fit = identify_rc(P_step.flatten(), T_step, T_amb, dt_s)
-        id_data.append({"id": id_sel, "Is": np.mean(Is), "Wm": np.mean(Wm),
-                        "Pv": np.max(P_step), "R": R_fit, "C": C_fit})
+        df_ident = pd.DataFrame(id_data)
+        # poly_R = make_pipeline(PolynomialFeatures(2), LinearRegression()).fit(df_ident[["Is", "Wm"]], df_ident["R"])
+        # poly_C = make_pipeline(PolynomialFeatures(2), LinearRegression()).fit(df_ident[["Is", "Wm"]], df_ident["C"])
+        R_hat, C_hat, tau = df_ident["R"].mean(), df_ident["C"].mean(), df_ident["R"].mean()*df_ident["C"].mean()
+        print(f"Identified Average: R_th_sum = {np.sum(R_hat):.4f} K/W, C_th_min = {np.min(C_hat):.2f} J/K, and tau_min = {np.min(tau):.2f} sec")
 
     # ==============================================================================
-    # Average Rth and Cth
+    # Set RC
     # ==============================================================================
-    df_ident = pd.DataFrame(id_data)
-    # poly_R = make_pipeline(PolynomialFeatures(2), LinearRegression()).fit(df_ident[["Is", "Wm"]], df_ident["R"])
-    # poly_C = make_pipeline(PolynomialFeatures(2), LinearRegression()).fit(df_ident[["Is", "Wm"]], df_ident["C"])
-    R_hat, C_hat = df_ident["R"].mean(), df_ident["C"].mean()
-    print(f"Identified Average: R_th = {R_hat:.4f} K/W, C_th = {C_hat:.2f} J/K")
+    else:
+        # ------------------------------------------
+        # Average Rth and Cth
+        # ------------------------------------------
+        R_hat = np.array(Rth, dtype='float32')
+        tau = np.array(tau, dtype='float32')
+        C_hat = tau / Rth
+        print(f"Defined Average: R_th_sum = {np.sum(R_hat):.4f} K/W, C_th_min = {np.min(C_hat):.2f} J/K, and tau_min = {np.min(tau):.2f} sec")
 
     ###################################################################################################################
     # Preprocessing
@@ -277,7 +310,7 @@ def main():
 
                 # Training
                 model = train_one_fold(model, optimizer, scheduler, train_loader, val_loader, dt_torch,
-                                       R_hat, C_hat, T_min, T_max, lambda_phys, lambda_init,
+                                       R_hat, C_hat, N_nodes, T_min, T_max, lambda_phys, lambda_init,
                                        epochs, patience, f"{MDL_NAME}_fold{fold}.pt")
 
                 # Error and Output
@@ -339,7 +372,7 @@ def main():
             # Training
             # ------------------------------------------
             model = train_one_fold(model, optimizer, scheduler, train_loader, val_loader, dt_torch,
-                                   R_hat, C_hat, T_min, T_max, lambda_phys, lambda_init,
+                                   R_hat, C_hat, N_nodes, T_min, T_max, lambda_phys, lambda_init,
                                    epochs, patience, MDL_NAME)
 
             # ------------------------------------------
@@ -360,6 +393,7 @@ def main():
     # Generate Test Sessions
     # ==============================================================================
     test_sessions = []
+    X_test = []
     for sid in test_ids:
         df_session = df_test[df_test["id"] == sid].copy()
         if df_session.empty:
@@ -367,7 +401,9 @@ def main():
 
         # Physics baseline
         P_test = df_session["Pv_s"].values
-        T_pred_rc = foster_rc(df_session[selR].values, P_test, dt_s, R_hat, C_hat)
+        time = np.linspace(0, (len(P_test) - 1) * dt_s, len(P_test))
+        T_pred_rc = predict_rc(P_test, time, df_session[selR].values, R_hat, C_hat)
+        # T_pred_rc = foster_rc(df_session[selR].values, P_test, dt_s, R_hat, C_hat)
 
         # Prepare NN inputs and true temperatures (inverse-normalized later)
         X_test, T_test, _ = normalize(df_session, selX, selY, selR, X_mean, X_std, T_max, T_min)
@@ -441,32 +477,77 @@ def main():
 
             # Plot measured vs predicted
             if ENABLE_PLOTS:
-                time = np.linspace(0, (len(err_all) - 1) / 60 * dt_s, len(err_all))  # time in minutes
-                fig, axs = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+                prop_cycle = plt.rcParams['axes.prop_cycle']
+                colors = prop_cycle.by_key()['color']
+
+                time = np.linspace(0, (len(err_all) - 1) / 60 * dt_s, len(err_all))
+                fig, axs = plt.subplots(3, 2, gridspec_kw={'width_ratios': [3, 1]}, figsize=(10, 6), sharex=False)
                 fig.suptitle(f"Model Comparison", fontsize=12, fontweight="bold")
 
                 # ▪️ Top: Current Voltage
-                axs[0].plot(time, Is_all, label="Current", linewidth=2)
-                axs[0].plot(time, Us_all, label="Voltage", linewidth=2)
-                axs[0].set_ylabel("Current [A] / Voltage [V]")
-                axs[0].legend(loc="best")
-                axs[0].grid(True, linestyle="--", linewidth=0.6)
+                axs[0, 0].plot(time, Is_all, label="Current", linewidth=2)
+                axs[0, 0].plot(time, Us_all, label="Voltage", linewidth=2)
+                axs[0, 0].set_ylabel("Current [A] / Voltage [V]")
+                axs[0, 0].legend(loc="best")
+                axs[0, 0].grid(True, linestyle="--", linewidth=0.6)
+
+                mu, std = norm.fit(Is_all[Is_all>20])
+                axs[0, 1].hist(Is_all[Is_all>20], bins=50, label="RMS Current", density=True, alpha=0.6)
+                x_prob = np.linspace(0, 1.2*Is_all.max(), 100)
+                p = norm.pdf(x_prob, mu, std)
+                axs[0, 1].plot(x_prob, p, linewidth=2, color=colors[0])
+
+                mu, std = norm.fit(Us_all[Us_all>20])
+                axs[0, 1].hist(Us_all[Us_all>20], bins=50, label="RMS Voltage", density=True, alpha=0.6)
+                x_prob = np.linspace(0.8*Us_all.min(), 1.2*Us_all.max(), 100)
+                p = norm.pdf(x_prob, mu, std)
+                axs[0, 1].plot(x_prob, p, linewidth=2, color=colors[1])
+                axs[0, 1].set_xlabel("Current [A] / Voltage [V]")
+                axs[0, 1].set_ylabel("Probability [%]")
+                axs[0, 1].legend(loc="best")
+                axs[0, 1].grid(True, linestyle="--", linewidth=0.6)
 
                 # ▪️ Mid: Temperatures
-                axs[1].plot(time, T_true_global, label="True", color="black", linewidth=2)
-                axs[1].plot(time, T_pred_all, label="Pred", linewidth=2)
-                axs[1].plot(time, Tc_all, label="Coolant", linewidth=2)
-                axs[1].set_ylabel("Temperature [°C]")
-                axs[1].legend(loc="best")
-                axs[1].grid(True, linestyle="--", linewidth=0.6)
+                axs[1, 0].plot(time, T_true_global, label="True", color="black", linewidth=2)
+                axs[1, 0].plot(time, T_pred_all, label="Pred", linewidth=2)
+                axs[1, 0].plot(time, Tc_all, label="Coolant", linewidth=2)
+                axs[1, 0].set_ylabel("Temperature [°C]")
+                axs[1, 0].legend(loc="best")
+                axs[1, 0].grid(True, linestyle="--", linewidth=0.6)
+
+                mu, std = norm.fit(T_true_global)
+                axs[1, 1].hist(T_true_global, bins=50, label="True", density=True, alpha=0.6)
+                x_prob = np.linspace(0.8*T_true_global.min(), 1.2*T_true_global.max(), 100)
+                p = norm.pdf(x_prob, mu, std)
+                axs[1, 1].plot(x_prob, p, linewidth=2, color=colors[0])
+
+                mu, std = norm.fit(T_pred_all)
+                axs[1, 1].hist(T_pred_all, bins=50, label="Pred", density=True, alpha=0.6)
+                x_prob = np.linspace(0.8*T_pred_all.min(), 1.2*T_pred_all.max(), 100)
+                p = norm.pdf(x_prob, mu, std)
+                axs[1, 1].plot(x_prob, p, linewidth=2, color=colors[1])
+                axs[1, 1].set_xlabel("Temperature [°C]")
+                axs[1, 1].set_ylabel("Probability [%]")
+                axs[1, 1].legend(loc="best")
+                axs[1, 1].grid(True, linestyle="--", linewidth=0.6)
 
                 # ▪️ Bottom: Errors
-                axs[2].plot(time, err_all, label="Error")
-                axs[2].axhline(0, color="black", linewidth=1)
-                axs[2].set_xlabel("Time [min]")
-                axs[2].set_ylabel("Error [°C]")
-                axs[2].legend(loc="best")
-                axs[2].grid(True, linestyle="--", linewidth=0.6)
+                axs[2, 0].plot(time, err_all, label="Error")
+                axs[2, 0].axhline(0, color="black", linewidth=1)
+                axs[2, 0].set_xlabel("Time [min]")
+                axs[2, 0].set_ylabel("Error [°C]")
+                axs[2, 0].legend(loc="best")
+                axs[2, 0].grid(True, linestyle="--", linewidth=0.6)
+
+                mu, std = norm.fit(err_all)
+                axs[2, 1].hist(err_all, bins=100, label="Error", density=True, alpha=0.6)
+                x_prob = np.linspace(err_all.min(), err_all.max(), 100)
+                p = norm.pdf(x_prob, mu, std)
+                axs[2, 1].plot(x_prob, p, linewidth=2, color=colors[0])
+                axs[2, 1].set_xlabel("Error [K]")
+                axs[2, 1].set_ylabel("Probability [%]")
+                axs[2, 1].legend(loc="best")
+                axs[2, 1].grid(True, linestyle="--", linewidth=0.6)
 
                 plt.tight_layout()
                 plt.show()

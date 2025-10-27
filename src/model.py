@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from src.auxiliary import *
 
@@ -116,7 +117,7 @@ class MultiPathLSTM_PINN(nn.Module):
 # PINN-Training Loop
 # ----------------------------------------------------
 def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.Tensor,
-                   t: torch.Tensor, T0: torch.Tensor, dt: torch.Tensor, R: float, C: float,
+                   t: torch.Tensor, T0: torch.Tensor, dt: torch.Tensor, R: float, C: float, N_nodes,
                    Tamb: torch.Tensor, Tmin: float, Tmax: float, lambda_phys: float = 1.0, lambda_init: float = 1.0) \
                     -> tuple[torch.Tensor, float, float, float]:
     """
@@ -128,13 +129,24 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
     T_t = T_pred * (Tmax - Tmin) + Tmin
     Tamb_phys = Tamb * (Tmax - Tmin) + Tmin
 
-    rhs = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
-    res = dTdt_pred - rhs
 
-    weights = torch.exp(-t / (R * C)).unsqueeze(0)
+
+    if N_nodes == 1:
+        rhs_total = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
+        weights = torch.exp(-t / (R * C)).unsqueeze(0)
+    else:
+        rhs_total = 0 * dTdt_pred
+        weights = torch.exp(-t / (np.min(R * C))).unsqueeze(0)
+        for i in range(0, N_nodes):
+            rhs = (1.0 / C[i]) * P - (1.0 / (R[i] * C[i])) * (T_t - Tamb_phys)
+            rhs_total = rhs_total + rhs
+    res = dTdt_pred - rhs_total
+
+
     ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
 
     data_mse = torch.mean((T_pred - T) ** 2)
     phys_mse = torch.mean(res ** 2)
     total = data_mse + lambda_phys * phys_mse + lambda_init * ic_mse
+
     return total, data_mse.item(), lambda_phys * phys_mse.item(), lambda_init * ic_mse.item()
