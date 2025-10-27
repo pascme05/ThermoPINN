@@ -19,6 +19,32 @@ class LSTM_PINN(nn.Module):
         return out.squeeze(-1)
 
 
+# ----------------------------------------------------
+# LSTM-PINN HIDDEN Model
+# ----------------------------------------------------
+class LSTM_PINN_HIDDEN(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=128, num_layers=2, dropout=0.2):
+        super().__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers,
+                            batch_first=True, dropout=dropout)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.init_state_net = nn.Linear(input_dim, hidden_dim)
+
+    def forward(self, x):
+        # Learn hidden init from first input
+        h0 = torch.tanh(self.init_state_net(x[:, 0, :]))
+        h0 = h0.unsqueeze(0).repeat(self.lstm.num_layers, 1, 1)
+        c0 = torch.zeros_like(h0)
+
+        out, _ = self.lstm(x, (h0, c0))
+        out = self.fc(out)
+        # Residual to anchor early steps
+        return out.squeeze(-1) + x[..., 0]
+
+
+# ----------------------------------------------------
+# LSTM-PINN Multi Model
+# ----------------------------------------------------
 class MultiPathLSTM_PINN(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int = 128, num_layers: int = 2, output_dim: int = 1):
         """
@@ -129,8 +155,6 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
     T_t = T_pred * (Tmax - Tmin) + Tmin
     Tamb_phys = Tamb * (Tmax - Tmin) + Tmin
 
-
-
     if N_nodes == 1:
         rhs_total = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
         weights = torch.exp(-t / (R * C)).unsqueeze(0)
@@ -142,9 +166,7 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
             rhs_total = rhs_total + rhs
     res = dTdt_pred - rhs_total
 
-
     ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
-
     data_mse = torch.mean((T_pred - T) ** 2)
     phys_mse = torch.mean(res ** 2)
     total = data_mse + lambda_phys * phys_mse + lambda_init * ic_mse

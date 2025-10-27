@@ -28,10 +28,11 @@ def main():
     # ==============================================================================
     # Settings
     # ==============================================================================
-    TRAIN_MODEL = True                                                                                                   # True: Model will be trained and tested, False: Testing
+    TRAIN_MODEL = False                                                                                                  # True: Model will be trained and tested, False: Testing
     ENABLE_PLOTS = True                                                                                                  # True: Plot results
     ORIGINAL_DATA = False                                                                                                # True. Transforms the original Kaggle data into the correct format
-    FIT_RC = False                                                                                                       # True: Fits the RC parameters based on measured step responses
+    FIT_RC = True                                                                                                        # True: Fits the RC parameters based on measured step responses
+    MDL = 0                                                                                                              # 0) LSTM, 2) Hidden-State LSTM
     N_FOLDS = 1                                                                                                          # Number of cross-validation runs
 
     # ==============================================================================
@@ -42,7 +43,7 @@ def main():
     DATA_PATH = os.path.join(BASE_DIR, "data", "motor_temp.csv")
     if ORIGINAL_DATA:
         DATA_PATH = os.path.join(BASE_DIR, "data", "measures_v2.csv")
-    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_test_pinn_1Hz.pt")
+    MDL_NAME = os.path.join(BASE_DIR, "mdl", "mdl_opti_pinn_1Hz.pt")
 
     # ==============================================================================
     # General Parameter
@@ -65,15 +66,15 @@ def main():
     # ------------------------------------------
     # Thermal
     # ------------------------------------------
-    N_nodes = 3                                                                                                          # Number of RC nodes
-    Rth = [0.0018, 0.0017, 0.0377]                                                                                       # List of thermal resistances [K/W]
-    tau = [57, 1783, 254]                                                                                                # List of thermal time constants [sec]
+    N_nodes = 1                                                                                                          # Number of RC nodes
+    Rth = [0.0057, 0.0353]                                                                                               # List of thermal resistances [K/W]
+    tau = [596, 222]                                                                                                     # List of thermal time constants [sec]
 
     # ==============================================================================
     # Training hyperparameters
     # ==============================================================================
     # ------------------------------------------
-    # Opti NN
+    # Opti Para
     # ------------------------------------------
     """
     seq_len = 1400  # Sequence length (timesteps per training sample)
@@ -84,13 +85,13 @@ def main():
     dropout = 0.25  # Dropout for the LSTM layer
     lr = 1.67e-3  # Learning rate for optimizer
     epochs = 100  # Maximum number of training epochs
-    lambda_phys = 0.0  # Weight for physics-informed loss term
-    lambda_init = 0.0  # Weight for initial condition loss
+    lambda_phys = 0.1  # Weight for physics-informed loss term
+    lambda_init = 0.5  # Weight for initial condition loss
     patience = 10  # Early stopping patience (epochs without improvement)
     """
 
     # ------------------------------------------
-    # Opti PINN
+    # Test Para
     # ------------------------------------------
     seq_len = 1400                                                                                                       # Sequence length (timesteps per training sample)
     stride = 30                                                                                                          # Step size between training sequences
@@ -216,6 +217,7 @@ def main():
         R_hat = np.array(Rth, dtype='float32')
         tau = np.array(tau, dtype='float32')
         C_hat = tau / Rth
+        N_nodes = len(R_hat)
         print(f"Defined Average: R_th_sum = {np.sum(R_hat):.4f} K/W, C_th_min = {np.min(C_hat):.2f} J/K, and tau_min = {np.min(tau):.2f} sec")
 
     ###################################################################################################################
@@ -303,8 +305,14 @@ def main():
                                             seq_len, stride, batch_size, DEVICE, ids_all[val_idx], shuffle=True)
 
                 # Init model
-                model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
-                                  num_layers=num_layers, dropout=dropout).to(DEVICE)
+                if MDL == 1:
+                    model = LSTM_PINN_HIDDEN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                             num_layers=num_layers, dropout=dropout).to(DEVICE)
+                else:
+                    model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                      num_layers=num_layers, dropout=dropout).to(DEVICE)
+
+                # Optimizer
                 optimizer = optim.Adam(model.parameters(), lr=lr)
                 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)
 
@@ -363,8 +371,16 @@ def main():
             # ------------------------------------------
             # Init Model
             # ------------------------------------------
-            model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
-                              num_layers=num_layers, dropout=dropout).to(DEVICE)
+            if MDL == 1:
+                model = LSTM_PINN_HIDDEN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                         num_layers=num_layers, dropout=dropout).to(DEVICE)
+            else:
+                model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                  num_layers=num_layers, dropout=dropout).to(DEVICE)
+
+            # ------------------------------------------
+            # Init Opti
+            # ------------------------------------------
             optimizer = optim.Adam(model.parameters(), lr=lr)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3)
 
@@ -400,9 +416,9 @@ def main():
             continue
 
         # Physics baseline
-        P_test = df_session["Pv_s"].values
-        time = np.linspace(0, (len(P_test) - 1) * dt_s, len(P_test))
-        T_pred_rc = predict_rc(P_test, time, df_session[selR].values, R_hat, C_hat)
+        # P_test = df_session["Pv_s"].values
+        # time = np.linspace(0, (len(P_test) - 1) * dt_s, len(P_test))
+        # T_pred_rc = predict_rc(P_test, time, df_session[selR].values, R_hat, C_hat)
         # T_pred_rc = foster_rc(df_session[selR].values, P_test, dt_s, R_hat, C_hat)
 
         # Prepare NN inputs and true temperatures (inverse-normalized later)
@@ -419,8 +435,7 @@ def main():
             "df": df_session,
             "X_test": X_test,
             "T_true": T_true_phys,
-            "time_min": np.linspace(0, (len(T_true_phys) - 1) / 60 * dt_s, len(T_true_phys)),
-            "T_pred_rc": T_pred_rc
+            "time_min": np.linspace(0, (len(T_true_phys) - 1) / 60 * dt_s, len(T_true_phys))
         })
 
     # ==============================================================================
@@ -432,8 +447,12 @@ def main():
         T_true_global = np.concatenate([s["T_true"] for s in test_sessions], axis=0)
 
         # --- Create model instance once before loading weights ---
-        model = LSTM_PINN(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
-                          num_layers=num_layers, dropout=dropout).to(DEVICE)
+        if MDL == 1:
+            model = LSTM_PINN_HIDDEN(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
+                                     num_layers=num_layers, dropout=dropout).to(DEVICE)
+        else:
+            model = LSTM_PINN(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
+                              num_layers=num_layers, dropout=dropout).to(DEVICE)
 
         # Prepare container for fold predictions
         if N_FOLDS == 1:

@@ -155,29 +155,29 @@ class LSTM_PINN(nn.Module):
 
 
 Performing 10-fold cross-validation by training ten models, after removing IDs 60, 62, 74 as a hold-out generalisation
-test set, the following performance is obtained for each of the ten models:
+test set, the following performance is obtained for each of the ten models (left PINN/ right NN):
 
 ```python
-Fold 0: MSE=2.6824, MAE=1.0193, R2=0.9964, MAX=13.2819
-Fold 1: MSE=2.5699, MAE=1.0912, R2=0.9965, MAX=15.3820
-Fold 2: MSE=4.2839, MAE=1.5628, R2=0.9942, MAX=12.8137
-Fold 3: MSE=2.5640, MAE=1.1065, R2=0.9965, MAX=14.0120
-Fold 4: MSE=7.5126, MAE=2.1228, R2=0.9898, MAX=12.7229
-Fold 5: MSE=3.3325, MAE=1.3359, R2=0.9955, MAX=13.3533
-Fold 6: MSE=2.7120, MAE=1.2651, R2=0.9963, MAX=12.2236
-Fold 7: MSE=2.5097, MAE=1.1276, R2=0.9966, MAX=15.1577
-Fold 8: MSE=2.6025, MAE=1.1967, R2=0.9965, MAX=13.4628
-Fold 9: MSE=2.2765, MAE=1.1289, R2=0.9969, MAX=15.8944
+Fold 0: MSE=2.6824, MAE=1.0193, R2=0.9964, MAX=13.2819 / MSE=4.3614, MAE=1.3816, R2=0.9941, MAX=17.7026
+Fold 1: MSE=2.5699, MAE=1.0912, R2=0.9965, MAX=15.3820 / MSE=5.7220, MAE=1.7847, R2=0.9922, MAX=16.8528
+Fold 2: MSE=4.2839, MAE=1.5628, R2=0.9942, MAX=12.8137 / MSE=5.9230, MAE=1.6849, R2=0.9919, MAX=19.4199
+Fold 3: MSE=2.5640, MAE=1.1065, R2=0.9965, MAX=14.0120 / MSE=4.8526, MAE=1.5688, R2=0.9934, MAX=20.1742
+Fold 4: MSE=7.5126, MAE=2.1228, R2=0.9898, MAX=12.7229 / MSE=5.1198, MAE=1.4844, R2=0.9930, MAX=19.0554
+Fold 5: MSE=3.3325, MAE=1.3359, R2=0.9955, MAX=13.3533 / MSE=5.2259, MAE=1.5350, R2=0.9929, MAX=15.9624
+Fold 6: MSE=2.7120, MAE=1.2651, R2=0.9963, MAX=12.2236 / MSE=12.099, MAE=2.4498, R2=0.9835, MAX=15.2632
+Fold 7: MSE=2.5097, MAE=1.1276, R2=0.9966, MAX=15.1577 / MSE=4.1078, MAE=1.4594, R2=0.9944, MAX=19.3918
+Fold 8: MSE=2.6025, MAE=1.1967, R2=0.9965, MAX=13.4628 / MSE=4.3721, MAE=1.3362, R2=0.9941, MAX=20.0484
+Fold 9: MSE=2.2765, MAE=1.1289, R2=0.9969, MAX=15.8944 / MSE=4.3797, MAE=1.4280, R2=0.9940, MAX=18.5930
 ```
 
 Averaging these results leads to the following average performance for the generalisation test set (ID 60, 62, 74) 
-including the standard deviation:
+including the standard deviation (left PINN/ right NN):
 
-```python
-MSE = 3.3046 ± 1.5873
-MAE = 1.2957 ± 0.3296
-R2  = 0.9955 ± 0.0022
-MAX = 13.8304 ± 1.2458
+```python  
+MSE = 3.3046 ± 1.5873 / MSE = 5.6164 ± 2.3580
+MAE = 1.2957 ± 0.3296 / MAE = 1.6113 ± 0.3245
+R2  = 0.9955 ± 0.0022 / R2  = 0.9924 ± 0.0032
+MAX = 13.830 ± 1.2458 / MAX = 18.246 ± 1.7250
 ```
 
 ---
