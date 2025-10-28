@@ -31,40 +31,64 @@ class LSTM_PINN_HIDDEN(nn.Module):
         self.init_state_net = nn.Linear(input_dim, hidden_dim)
 
     def forward(self, x):
-        # Learn hidden init from first input
         h0 = torch.tanh(self.init_state_net(x[:, 0, :]))
         h0 = h0.unsqueeze(0).repeat(self.lstm.num_layers, 1, 1)
         c0 = torch.zeros_like(h0)
 
         out, _ = self.lstm(x, (h0, c0))
         out = self.fc(out)
-        # Residual to anchor early steps
+
         return out.squeeze(-1) + x[..., 0]
 
 
-# ----------------------------------------------------
-# LSTM-PINN Init Model
-# ----------------------------------------------------
-class LSTM_PINN_PhysicalInit(nn.Module):
-    def __init__(self, input_dim, state_dim, output_dim, hidden_dim=128, num_layers=2, dropout=0.2):
+class LSTM_PINN_WARM(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=128, num_layers=2, dropout=0.2):
         super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+
+        # Main LSTM
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers,
                             batch_first=True, dropout=dropout)
         self.fc = nn.Linear(hidden_dim, output_dim)
-        self.state_encoder = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.Tanh()
+
+        # Encoder network: maps T0 -> h0, c0
+        self.init_net = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 2 * num_layers * hidden_dim)
         )
 
-    def forward(self, x, state):
-        # Map physical state -> hidden state initialization
-        h0 = self.state_encoder(state)  # [B, H]
-        h0 = h0.unsqueeze(0).repeat(self.lstm.num_layers, 1, 1)
-        c0 = torch.zeros_like(h0)
+    def forward(self, x, h0=None, c0=None, warmup_steps=5):
+        """
+        x: [batch_size, seq_len, input_dim]
+        h0, c0: optional initial states, shape [num_layers, batch, hidden_dim]
+        warmup_steps: number of steps to use for warm-up (no loss)
+        """
+        batch_size = x.size(0)
 
-        out, _ = self.lstm(x, (h0, c0))
+        # If h0/c0 not provided, compute from first input
+        if h0 is None or c0 is None:
+            T0 = x[:, 0, :]  # first time step
+            init_states = self.init_net(T0)
+            h0, c0 = torch.split(init_states, self.num_layers * self.hidden_dim, dim=-1)
+            h0 = h0.reshape(self.num_layers, batch_size, self.hidden_dim)
+            c0 = c0.reshape(self.num_layers, batch_size, self.hidden_dim)
+
+        # Warm-up phase (optional)
+        if warmup_steps > 0:
+            with torch.no_grad():
+                _, (h, c) = self.lstm(x[:, :warmup_steps, :], (h0, c0))
+        else:
+            h, c = h0, c0
+
+        # Predictive phase
+        out, _ = self.lstm(x[:, warmup_steps:, :], (h, c))
         out = self.fc(out)
-        return out.squeeze(-1)
+        return out  # shape: [batch, seq_len-warmup, output_dim]
+
 
 # ----------------------------------------------------
 # LSTM-PINN Multi Model

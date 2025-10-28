@@ -18,6 +18,14 @@ This approach enables:
 
 ---
 
+## 🧭 Installation
+
+```bash
+git clone https://github.com/yourusername/ThermoPINN.git
+cd ThermoPINN
+pip install -r requirements.txt
+```
+
 ## 📂 Dataset
 
 This project uses the **Electric Motor Temperature Dataset**:
@@ -146,13 +154,17 @@ class LSTM_PINN(nn.Module):
 
 **Table I:** Results for **NN** and **PINN** models on the generalization set (ID60, ID62, ID74) in terms of **MSE / MAE / MAX** error.
 
-| Test ID | MSE (NN / PINN) | MAE (NN / PINN) | MAX (NN / PINN) |
-|----------|-----------------|-----------------|-----------------|
-| 60       | 9.70 / 3.59     | 2.02 / 1.09     | 17.7 / 14.6     |
-| 62       | 5.04 / 2.08     | 1.63 / 0.77     | 17.6 / 12.8     |
-| 74       | 2.78 / 2.07     | 1.35 / 1.06     | 5.78 / 9.31     |
-| **Avg**  | **5.26 / 2.41** | **1.61 / 0.95** | **17.7 / 14.6** |
+| Test ID   | MSE (NN / PINN)   | MAE (NN / PINN) | MAX (NN / PINN) |
+|-----------|-------------------|-----------------|-----------------|
+| 60        | 9.70 / 3.59       | 2.02 / 1.09     | 17.7 / 14.6     |
+| 62        | 5.04 / 2.08       | 1.63 / 0.77     | 17.6 / 12.8     |
+| 74        | 2.78 / 2.07       | 1.35 / 1.06     | 5.78 / 9.31     |
+| **Avg**   | **5.26 / 2.41**   | **1.61 / 0.95** | **17.7 / 14.6** |
 
+
+| NN Result                                      | PINN Result                                        |
+|------------------------------------------------|----------------------------------------------------|
+| ![ID_NN_ID606274.png](docu/ID_NN_ID606274.png) | ![ID_PINN_ID606274.png](docu/ID_PINN_ID606274.png) |
 
 Performing 10-fold cross-validation by training ten models, after removing IDs 60, 62, 74 as a hold-out generalisation
 test set, the following performance is obtained for each of the ten models (left PINN/ right NN):
@@ -212,26 +224,24 @@ performance improvement over the purely data-driven neural network:
 
 ---
 
-### 🧩 Key Takeaway
+## 👀 Optimisation Approaches
+
+### Implicit initial state modeling
+
+To improve the maximum error during the session we can try to learn the initial state at the beginning of a session
+and capture it in $h_0$ of the LSTM. Do so leas to the following error is 10-fold CV:
+
+| Metric | NN              | PINN            | PINN + Init     |
+|--------|-----------------|-----------------|-----------------|
+| MSE    | 5.6164 ± 2.3580 | 3.3046 ± 1.5873 | 2.8894 ± 0.4656 |
+| MAE    | 1.6113 ± 0.3245 | 1.2957 ± 0.3296 | 1.2298 ± 0.1428 |
+| R2     | 0.9924 ± 0.0032 | 0.9955 ± 0.0022 | 0.9961 ± 0.0006 |
+| MAX    | 18.246 ± 1.7250 | 13.830 ± 1.2458 | 12.020 ± 1.2282 |
+
+
+## 🧩 Key Takeaway
 
 > The Physics-Informed Neural Network effectively bridges data-driven learning and first-principles modeling.  
 > By constraining the network with thermal dynamics, ThermoPINN achieves higher generalization performance while maintaining physically meaningful predictions.
 
 ---
-
-### NN-Results
-
-![ID_NN_ID606274.png](docu/ID_NN_ID606274.png)
-
-
-### PINN-Results
-
-![ID_PINN_ID606274.png](docu/ID_PINN_ID606274.png)
-
-## 🧭 Installation
-
-```bash
-git clone https://github.com/yourusername/ThermoPINN.git
-cd ThermoPINN
-pip install -r requirements.txt
-```

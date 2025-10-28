@@ -16,6 +16,7 @@ from sklearn.model_selection import GroupKFold
 # from sklearn.pipeline import make_pipeline
 from src.helpTrain import *
 from scipy.stats import norm
+from torchinfo import summary
 
 
 #######################################################################################################################
@@ -32,7 +33,7 @@ def main():
     ENABLE_PLOTS = True                                                                                                  # True: Plot results
     ORIGINAL_DATA = False                                                                                                # True. Transforms the original Kaggle data into the correct format
     FIT_RC = True                                                                                                        # True: Fits the RC parameters based on measured step responses
-    MDL = 0                                                                                                              # 0) LSTM, 2) Hidden-State LSTM
+    MDL = 0                                                                                                              # 0) LSTM, 1) Hidden-State LSTM, 2) LSTM Warmup
     N_FOLDS = 1                                                                                                          # Number of cross-validation runs
 
     # ==============================================================================
@@ -308,9 +309,13 @@ def main():
                 if MDL == 1:
                     model = LSTM_PINN_HIDDEN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
                                              num_layers=num_layers, dropout=dropout).to(DEVICE)
+                elif MDL == 2:
+                    model = LSTM_PINN_WARM(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                           num_layers=num_layers, dropout=dropout).to(DEVICE)
                 else:
                     model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
                                       num_layers=num_layers, dropout=dropout).to(DEVICE)
+                summary(model, input_size=(batch_size, seq_len, n_features))
 
                 # Optimizer
                 optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -374,9 +379,13 @@ def main():
             if MDL == 1:
                 model = LSTM_PINN_HIDDEN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
                                          num_layers=num_layers, dropout=dropout).to(DEVICE)
+            elif MDL == 2:
+                model = LSTM_PINN_WARM(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
+                                       num_layers=num_layers, dropout=dropout).to(DEVICE)
             else:
                 model = LSTM_PINN(input_dim=n_features, output_dim=1, hidden_dim=hidden_dim,
                                   num_layers=num_layers, dropout=dropout).to(DEVICE)
+            summary(model, input_size=(batch_size, seq_len, n_features))
 
             # ------------------------------------------
             # Init Opti
@@ -450,9 +459,13 @@ def main():
         if MDL == 1:
             model = LSTM_PINN_HIDDEN(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
                                      num_layers=num_layers, dropout=dropout).to(DEVICE)
+        elif MDL == 2:
+            model = LSTM_PINN_WARM(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
+                                   num_layers=num_layers, dropout=dropout).to(DEVICE)
         else:
             model = LSTM_PINN(input_dim=X_test.shape[1], output_dim=1, hidden_dim=hidden_dim,
                               num_layers=num_layers, dropout=dropout).to(DEVICE)
+        summary(model, input_size=(batch_size, seq_len, X_test.shape[1]))
 
         # Prepare container for fold predictions
         if N_FOLDS == 1:
