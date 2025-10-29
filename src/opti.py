@@ -132,8 +132,8 @@ def objective(trial):
     t_max = df_train["time_id"].max()
 
     # Normalize
-    X_train, T_train, Tamb_train = normalize(df_train, selX, selY, selR, X_mean, X_std, T_max, T_min)
-    X_val, T_val, Tamb_val = normalize(df_val, selX, selY, selR, X_mean, X_std, T_max, T_min)
+    X_train, T_train, Tamb_train = normalize(df_train, selX, selY, selR, X_mean, X_std, T_max, T_min, T_max, T_min)
+    X_val, T_val, Tamb_val = normalize(df_val, selX, selY, selR, X_mean, X_std, T_max, T_min, T_max, T_min)
 
     # Calc Power
     P_train = 3 * Rs * (df_train["Is"] / np.sqrt(2)) ** 2

@@ -56,12 +56,12 @@ class LSTM_PINN_WARM(nn.Module):
 
         # Encoder network: maps T0 -> h0, c0
         self.init_net = nn.Sequential(
-            nn.Linear(input_dim, 64),
+            nn.Linear(input_dim, 128),
             nn.Tanh(),
-            nn.Linear(64, 2 * num_layers * hidden_dim)
+            nn.Linear(128, 2 * num_layers * hidden_dim)
         )
 
-    def forward(self, x, h0=None, c0=None, warmup_steps=5):
+    def forward(self, x, h0=None, c0=None, warmup_steps=0):
         """
         x: [batch_size, seq_len, input_dim]
         h0, c0: optional initial states, shape [num_layers, batch, hidden_dim]
@@ -201,6 +201,41 @@ def pinn_loss_lstm(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.
     dTdt_pred = gradient(T_pred, dt) * (Tmax - Tmin)
 
     T_t = T_pred * (Tmax - Tmin) + Tmin
+    Tamb_phys = Tamb * (Tmax - Tmin) + Tmin
+
+    if N_nodes == 1:
+        rhs_total = (1.0 / C) * P - (1.0 / (R * C)) * (T_t - Tamb_phys)
+        weights = torch.exp(-t / (R * C)).unsqueeze(0)
+    else:
+        rhs_total = 0 * dTdt_pred
+        weights = torch.exp(-t / (np.min(R * C))).unsqueeze(0)
+        for i in range(0, N_nodes):
+            rhs = (1.0 / C[i]) * P - (1.0 / (R[i] * C[i])) * (T_t - Tamb_phys)
+            rhs_total = rhs_total + rhs
+    res = dTdt_pred - rhs_total
+
+    ic_mse = torch.mean(weights * ((T_t - T0) / (Tmax - Tmin)) ** 2)
+    data_mse = torch.mean((T_pred - T) ** 2)
+    phys_mse = torch.mean(res ** 2)
+    total = data_mse + lambda_phys * phys_mse + lambda_init * ic_mse
+
+    return total, data_mse.item(), lambda_phys * phys_mse.item(), lambda_init * ic_mse.item()
+
+
+# ----------------------------------------------------
+# PINN-Training Loop
+# ----------------------------------------------------
+def pinn_loss_multi(model: nn.Module, X: torch.Tensor, T: torch.Tensor, P: torch.Tensor,
+                    t: torch.Tensor, T0: torch.Tensor, dt: torch.Tensor, R: float, C: float, N_nodes,
+                    Tamb: torch.Tensor, Tmin: float, Tmax: float, lambda_phys: float = 1.0, lambda_init: float = 1.0) \
+                     -> tuple[torch.Tensor, float, float, float]:
+    """
+    Physics-informed loss for LSTM-PINN: data + physics + initial condition.
+    """
+    T_pred = model(X)
+    dTdt_pred = gradient(T_pred[:,:,0], dt) * (Tmax - Tmin)
+
+    T_t = T_pred[:,:,0] * (Tmax - Tmin) + Tmin
     Tamb_phys = Tamb * (Tmax - Tmin) + Tmin
 
     if N_nodes == 1:
